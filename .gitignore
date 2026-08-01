@@ -1,0 +1,21 @@
+# Rust/Cargo ignores
+target/
+Cargo.lock
+
+# Node.js (if used in frontend later)
+node_modules/
+dist/
+
+# macOS / Windows OS files
+.DS_Store
+Thumbs.db
+
+# X-Now specific binaries (we don't commit binaries to source control, upload them to Releases)
+X-Now_v1.0.0.exe
+installers/
+
+# User specifically requested to hide their personal right-click tray settings
+# WARNING: Ignoring this file will cause compilation errors for anyone cloning the repository 
+# (and for the GitHub Actions pipeline) because `lib.rs` depends on `mod tray;`. 
+# To fix this in the future, either provide a dummy `tray.rs` or remove the tray dependency in `lib.rs`.
+src-tauri/src/tray.rs
