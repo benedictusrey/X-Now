@@ -1,118 +1,61 @@
-<p align="center">
-  <img src="icons/icon.png" alt="X-Now Logo" width="120" height="120"/>
-</p>
+<h1 align="center">
+  <img src="https://raw.githubusercontent.com/benedictusrey/X-Now/main/assets/readme_banner.png" alt="X-Now Banner" width="100%">
+</h1>
 
-<h1 align="center">X-Now</h1>
-
-<p align="center">
-  <strong>A high-performance, cross-platform desktop client for <a href="https://x.com">X (Twitter)</a></strong><br/>
-  Built with <a href="https://tauri.app">Tauri v2</a> + Rust · WebView2
-</p>
+<h4 align="center">A lightning-fast, aesthetically pleasing desktop experience for X (Twitter).</h4>
 
 <p align="center">
-  <strong>🎉 INAUGURAL RELEASE: v1.0.0 IS NOW LIVE! 🎉</strong><br/>
-  <em>After meticulous development, the first official build of X-Now is ready for deployment.</em>
-</p>
-
-<p align="center">
-  <img src="https://img.shields.io/badge/version-1.0.0-blue?style=flat-square"/>
-  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey?style=flat-square"/>
-  <img src="https://img.shields.io/badge/built%20with-Tauri%20v2-24C8DB?style=flat-square&logo=tauri"/>
-  <img src="https://img.shields.io/badge/Rust-1.97-orange?style=flat-square&logo=rust"/>
-  <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square"/>
-  <a href="https://github.com/benedictusrey"><img src="https://img.shields.io/badge/author-%40benedictusrey-black?style=flat-square&logo=github"/></a>
+  <a href="#features">Features</a> •
+  <a href="#installation">Installation</a> •
+  <a href="#building-from-source">Building</a> •
+  <a href="#support--feedback">Support</a>
 </p>
 
 ---
 
-## 🚀 Welcome to the Future of X on Desktop
+Welcome to **X-Now**, a highly optimized wrapper for X (formerly Twitter) built to provide a focused and highly performant desktop experience. Created solely by **@benedictusrey**, this app is designed to deliver all your feed updates and notifications directly to your desktop without any overhead.
 
-**X-Now** isn't just a wrapper—it's a meticulously engineered native desktop client that supercharges your X experience. Designed for speed, aesthetics, and power users, X-Now seamlessly bridges the gap between the web and your OS. 
+> 🛠️ **Current Release**: v1.1.0
+> 🚀 **Author**: [Benedictus Rey (@benedictusrey)](https://github.com/benedictusrey)
 
-### 🌟 Why Choose X-Now?
+## ✨ Features
 
-#### 1. Unrivaled Performance & Efficiency
-Say goodbye to the heavy memory usage of standard web browsers. Built entirely on Rust and Tauri v2, X-Now is designed to be incredibly lightweight. It actively manages background resources, meaning your computer stays blazing fast and responsive—even during infinite scrolling sessions.
-<p align="center">
-  <img src="assets/performance.jpg" alt="Performance capabilities of X-Now" width="100%"/>
-</p>
+- **Blazing Fast Performance**: Built heavily on Tauri (Rust) to ensure minimal memory footprint and instant startup times.
+- **Native OS Checkmarks**: Seamless integration with system-level UI components on your tray menu.
+- **True Mute Functionality**: Injectable JavaScript explicitly hooks and blocks audio elements so you can mute in peace.
+- **Dedicated Desktop Shortcuts**: Get to your home feed, direct messages, bookmarks, and notifications instantly via the system tray.
+- **Stay on Top**: Keep the application hovering over your work with a seamless "Always on Top" toggle.
+- **Auto Start**: Automatically launch X-Now when your computer turns on.
+- **Compact Caching Engine**: An integrated Rust SQLite caching engine to clean up data traces on demand.
 
-#### 2. Immersive & Distraction-Free Aesthetics
-X-Now strips away the browser clutter to give you a pure, edge-to-edge experience. We've removed native window borders and drop shadows to achieve a sleek, glassmorphic UI. Plus, videos are optimized to play smoothly as you scroll and pause instantly when out of view, ensuring a beautiful but RAM-friendly feed.
-<p align="center">
-  <img src="assets/autoplay.jpg" alt="X-Now immersive video autoplay" width="100%"/>
-</p>
+## 📦 Installation
 
-#### 3. Deep Operating System Integration
-Why open a browser tab when you can control everything from your taskbar? X-Now lives in your Windows system tray, offering a powerful command center. With a simple right-click, you can instantly toggle dark mode, mute notifications, jump straight to your bookmarks, or even flush your memory cache.
-<p align="center">
-  <img src="assets/tray.jpg" alt="X-Now system tray integration" width="100%"/>
-</p>
+To install X-Now on your Windows PC:
 
----
-
-## ✨ Key Features in Detail
-
-| Feature | How It Works |
-|---|---|
-| 🌐 **Authentic X Experience** | Renders the real `https://x.com` directly through Microsoft's ultra-fast WebView2 engine, giving you the authentic feed in a native app format. |
-| 🔐 **Seamless Native Login** | Forget getting kicked out to external browsers. X-Now securely handles Google and Apple sign-ins directly within the app using native OAuth relays. |
-| 🎬 **Smart Video Autoplay** | Intelligently plays videos only when they are 50% visible on your screen, and pauses them instantly when you scroll past. It caps playback to one video at a time to aggressively save memory. |
-| 🏷️ **Dynamic Titlebar** | The window title automatically updates to display `X-Now (@your_username)` the moment you securely log in. |
-| 🖥️ **Command Center Tray** | A robust 22-option system tray menu offering everything from zoom controls to instant memory compaction tools. |
-| 🚀 **Feather-Light Binary** | A pure compiled executable that completely avoids the heavy bloat associated with traditional Electron or Node.js desktop apps. |
-| 📌 **Instant Quick Access** | Simply left-click the tray icon to instantly show or hide your feed. Right-click for your full settings menu. |
-
----
-
-## 📦 Installation 
-
-### Windows (`.exe` / `.msi`)
-1. Download `X-Now_v1.0.0.exe` or the `X-Now_1.0.0_x64-setup.exe` installer from [Releases](../../releases).
-2. Double-click to run. (The installer will add desktop shortcuts).
-3. **Verify Integrity**: Compare the file hash against `checksums.txt` in the release assets.
+1. Head over to our [Releases](https://github.com/benedictusrey/X-Now/releases) page.
+2. Download the latest `X-Now_v1.1.0.exe` or `X-Now_1.1.0_x64-setup.exe` (NSIS installer).
+3. Run the installer or standalone executable. 
+4. Sign in to your X account and start posting!
 
 ### macOS & Linux
-See the [Releases](../../releases) page for `.dmg`, `.app`, `.deb`, and `AppImage` files automatically built by our GitHub Actions pipeline.
+See the Releases page for `.dmg`, `.app`, `.deb`, and AppImage files automatically built by our GitHub Actions pipeline.
 
----
+## 🛠️ Building from source
 
-## 🛠 Building from Source
-
-### Prerequisites
-
-| Tool | Version | Install |
-|---|---|---|
-| Rust | ≥ 1.75 | [rustup.rs](https://rustup.rs) |
-| Node.js | ≥ 18 (optional) | [nodejs.org](https://nodejs.org) |
-| WebView2 Runtime | Latest | Pre-installed on Windows 11 |
-
-### Quick Build
+If you want to compile X-Now yourself, you'll need the latest Rust toolchain and Node.js.
 
 ```bash
-# Clone the repository
-git clone https://github.com/benedictusrey/x-now.git
-cd x-now
+# 1. Clone the repository
+git clone https://github.com/benedictusrey/X-Now.git
+cd X-Now/src-tauri
 
-# Development run (hot-reload)
-cd src-tauri && cargo tauri dev
-
-# Production build
-cd src-tauri && cargo tauri build
+# 2. Build the app
+cargo tauri build
 ```
 
----
+The resulting binaries will be placed in `src-tauri/target/release/`.
 
-## 🔒 Security
-
-- All navigation is handled securely within the WebView2 sandbox.
-- No custom backend servers, telemetry, or data collection.
-- OAuth flows use x.com's official implementation.
-- See [SECURITY.md](SECURITY.md) for vulnerability reporting.
-
----
-
-## 📄 License
+## 📜 License
 
 MIT © 2026 [@benedictusrey](https://github.com/benedictusrey)
 
