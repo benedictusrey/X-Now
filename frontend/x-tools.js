@@ -367,6 +367,32 @@
     return Array.from(new Set(resources.reverse()));
   }
 
+  // X's video elements carry a poster thumbnail whose URL shares the video's
+  // numeric ID (ext_tw_video_thumb/<ID> or amplify_video_thumb/<ID>). The
+  // video's stream URL (video.twimg.com/ext_tw_video/<ID> or
+  // /amplify_video/<ID>) carries the same ID — a strong scoping signal that
+  // pins page-wide resource entries to the CLICKED video.
+  function videoIdFromPoster(media) {
+    const poster = media?.poster || media?.getAttribute?.("poster") || "";
+    const match = String(poster).match(/(?:ext_tw_video|amplify_video)_thumb\/(\d+)/);
+    return match ? match[1] : "";
+  }
+
+  function scopedVideoResources(media) {
+    const all = mediaUrlsFromResources(media);
+    const id = videoIdFromPoster(media);
+    if (!id) return all;
+    const scoped = all.filter(url => new RegExp(`/${id}/`).test(url));
+    return scoped.length ? scoped : all;
+  }
+
+  // Only URLs we can actually save: no HLS playlists (m3u8 / /pl/ paths).
+  function isUsableMediaUrl(url) {
+    return /^https?:\/\//i.test(url)
+      && !/\.m3u8(?:[?#]|$)/i.test(url)
+      && !/\/pl\//i.test(url);
+  }
+
   // X serves every image in resolution variants of the same media ID
   // (?name=small|medium|large|orig). The feed element usually exposes a small
   // thumbnail — offer the full-resolution variants as candidates so saving
@@ -414,11 +440,12 @@
       const metaUrls = Array.from(fragment.querySelectorAll(
         "meta[property='og:video'], meta[property='og:video:secure_url'], " +
         "meta[property='og:video:url'], meta[property='og:image'], " +
-        "meta[property='og:image:secure_url']"
+        "meta[property='og:image:secure_url'], meta[property='twitter:player:stream'], " +
+        "meta[property='twitter:player:stream:content_type']"
       )).map(meta => normalizeMediaUrl(meta.content));
       const textUrls = normalizeMediaUrl(html).match(/https?:\/\/[^"'\s]+/g) || [];
       const candidates = [...metaUrls, ...textUrls].filter(url =>
-        /^https?:\/\//i.test(url)
+        isUsableMediaUrl(url)
         && (/video\.twimg\.com\//i.test(url)
           || (/pbs\.twimg\.com\//i.test(url) && /\.(?:jpe?g|png|webp|avif)(?:[?#]|$)/i.test(url))
           || /\.mp4(?:[?#]|$)/i.test(url)));
@@ -436,11 +463,11 @@
       if (!url || candidates.includes(url)) return;
       candidates.push(url);
     };
-    // Order: element/variant URLs, then POST-SCOPED candidates (the post
-    // page's og:video/og:image — always the clicked post, never a neighbour),
-    // and only as a last resort the PAGE-WIDE resource entries (they include
-    // every video/image the page loaded, so they can point at another post —
-    // the cause of 'video always downloaded the first post').
+    // Order: element/variant URLs, then POST-SCOPED candidates (the clicked
+    // post page's video/image URLs — never a neighbour), then VIDEO resources
+    // scoped to the clicked element via its poster's media ID, and only as a
+    // last resort the page-wide resource entries (the cause of 'video always
+    // downloaded the first post').
     if (media instanceof HTMLImageElement) {
       resolutionVariants(directUrl).forEach(addCandidate);
       addCandidate(directUrl);
@@ -449,8 +476,11 @@
       resolutionVariants(directUrl).forEach(addCandidate);
     }
     (await mediaUrlsFromPost(postUrlForMedia(media))).forEach(addCandidate);
-    mediaUrlsFromResources(media).forEach(addCandidate);
-    return candidates.filter(url => /^https?:\/\//i.test(url));
+    const pageResources = media instanceof HTMLVideoElement
+      ? scopedVideoResources(media)
+      : mediaUrlsFromResources(media);
+    pageResources.forEach(addCandidate);
+    return candidates.filter(isUsableMediaUrl);
   }
 
   function openDefaultBrowser(url) {
@@ -725,6 +755,10 @@
     if (event.button !== 0) return;
     if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
     if (elementFromTarget(event.target)?.closest?.(".xnow-media-menu")) return;
+    // Clicks on media elements belong to X's own player (play/pause, open the
+    // post in-app) — never hand them off, even when an ad wraps the video in
+    // an external click-through link.
+    if (elementFromTarget(event.target)?.closest?.("video, audio")) return;
     const link = linkFromTarget(event.target);
     if (!link || !isExternalLink(link.href)) return;
     event.preventDefault();

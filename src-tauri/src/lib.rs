@@ -567,9 +567,10 @@ async fn download_media(
         }
 
         eprintln!(
-            "[X-Now] download_media OK: {} bytes -> {}",
+            "[X-Now] download_media OK: {} bytes -> {} <- {}",
             metadata.len(),
-            target_path.display()
+            target_path.display(),
+            url
         );
         Ok(target_path.to_string_lossy().into_owned())
     })

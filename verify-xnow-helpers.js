@@ -325,7 +325,8 @@ win2.setTimeout(() => {
     };
     win2.performance.getEntriesByType = () => [
       { name: 'https://video.twimg.com/ext_tw_video/111111/pu/vid/avc1/720x720/FIRST.mp4', initiatorType: 'video' },
-      { name: 'https://video.twimg.com/ext_tw_video/222222/pu/vid/avc1/720x720/OTHER.mp4', initiatorType: 'video' }
+      { name: 'https://video.twimg.com/ext_tw_video/222222/pu/vid/avc1/720x720/OTHER.mp4', initiatorType: 'video' },
+      { name: 'https://video.twimg.com/ext_tw_video/987654/pl/PLAYLIST.m3u8?tag=14', initiatorType: 'video' }
     ];
     const articleD = win2.document.createElement('article');
     articleD.setAttribute('data-testid', 'tweet');
@@ -347,8 +348,66 @@ win2.setTimeout(() => {
       'blob video resolves to the CLICKED post og:video (post page wins over page-wide resources)');
     assert(!invoked.some(c => c.cmd === 'download_media' && c.url.includes('FIRST.mp4')),
       'first post mp4 from resources never tried for the clicked video');
+    assert(!invoked.some(c => c.cmd === 'download_media' && /\.m3u8/.test(c.url)),
+      'HLS playlist URLs are excluded from candidates');
     const toastD = win2.document.querySelector('.xnow-toast');
     assert(toastD && toastD.textContent.includes('Saved video'), 'video success toast shown');
+
+    // E: poster-ID scoping — even when the post page fetch FAILS, resources
+    // are pinned to the clicked video via its poster's media ID.
+    failAllDownloads = false;
+    win2.fetch = async (url, opts) => {
+      fetchCalls.push({ url, creds: opts && opts.credentials });
+      if (/\/status\//.test(url)) return { ok: false, status: 500 };
+      return { ok: true, headers: { get: () => 'image/jpeg' }, arrayBuffer: async () => new ArrayBuffer(16) };
+    };
+    win2.performance.getEntriesByType = () => [
+      { name: 'https://video.twimg.com/ext_tw_video/111111/pu/vid/avc1/720x720/FIRST.mp4', initiatorType: 'video' },
+      { name: 'https://video.twimg.com/ext_tw_video/777888/pu/vid/avc1/720x720/TARGET.mp4?tag=14', initiatorType: 'video' }
+    ];
+    const articleE = win2.document.createElement('article');
+    articleE.setAttribute('data-testid', 'tweet');
+    const linkE = win2.document.createElement('a');
+    linkE.href = 'https://x.com/someone/status/9999999999';
+    const videoE = win2.document.createElement('video');
+    videoE.dataset.testRect = '300,300,0,0';
+    videoE.src = 'blob:https://x.com/vid-e';
+    videoE.poster = 'https://pbs.twimg.com/ext_tw_video_thumb/777888/pu/img/thumb.jpg';
+    articleE.appendChild(linkE);
+    articleE.appendChild(videoE);
+    win2.document.body.appendChild(articleE);
+    videoE.dispatchEvent(new win2.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 80, clientY: 80 }));
+    const menuE = win2.document.querySelector('.xnow-media-menu');
+    const btnE = Array.from(menuE.querySelectorAll('button')).find(b => b.textContent.includes('Save video'));
+    btnE.click();
+    await new Promise(r => setTimeout(r, 200));
+    const dlE = invoked.filter(c => c.cmd === 'download_media' && /FIRST|TARGET/.test(c.url));
+    assert(dlE.length >= 1 && dlE[0].url.includes('777888'),
+      'poster-ID scoping: clicked video resource (777888) wins over first page video (111111) even when the post fetch fails');
+
+    // G: clicks on media elements are never handed off (ad click-through guard)
+    const opened = [];
+    const realOpen = win2.open;
+    win2.open = (url) => { opened.push(url); return null; };
+    const anchorG = win2.document.createElement('a');
+    anchorG.href = 'https://t.co/ADCLICK';
+    const videoG = win2.document.createElement('video');
+    videoG.dataset.testRect = '300,300,0,0';
+    anchorG.appendChild(videoG);
+    win2.document.body.appendChild(anchorG);
+    const clickOnVideo = new win2.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
+    videoG.dispatchEvent(clickOnVideo);
+    await new Promise(r => setTimeout(r, 60));
+    assert(clickOnVideo.defaultPrevented === false, 'click on a video inside an external (ad) link is NOT intercepted');
+    assert(opened.length === 0, 'no browser hand-off when clicking the video itself');
+    const spanG = win2.document.createElement('span');
+    anchorG.appendChild(spanG);
+    const clickOnSpan = new win2.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
+    spanG.dispatchEvent(clickOnSpan);
+    await new Promise(r => setTimeout(r, 60));
+    assert(clickOnSpan.defaultPrevented === true && opened.length === 1,
+      'click on the non-media part of an external link IS handed off');
+    win2.open = realOpen;
 
     // ── Cleanup sanity: single style element across the whole session ──────────
     assert(doc.querySelectorAll('style').length === 1, 'no style duplication after route polls');
