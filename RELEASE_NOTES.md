@@ -22,6 +22,7 @@
 - **Stale-silence fix.** Windows can persist an old audio-session mute across restarts; a startup watchdog clears it automatically, so a fresh launch is never mysteriously silent (verified with an OS audio peak meter).
 
 ### 💾 One-click media saving
+- **Fixed the real blocker**: Tauri's ACL now explicitly grants the four native commands to the x.com page (`remote` capability + declared commands in build.rs). Previously every native call was rejected with "Command … not allowed by ACL" — image saving fell through every layer, and videos always had to take the Cobalt detour. Image saving now works end-to-end, and videos download **directly** whenever X exposes a direct MP4 URL — no Cobalt round-trip, much faster.
 - Right-click any **image** and save it straight to `Downloads\X-Now` — X-Now resolves the **full-resolution original** (element URL → `name=orig`/`large` variants → loaded CDN resources → the post page's `og:image`) and delivers it through a native curl downloader or a CORS-safe in-page fetch.
 - Right-click any **video** — X-Now tries a direct MP4 save from X's own CDN first; when X only exposes a streamed `blob:` URL, it falls back to the proven IG-Now hand-off: post link copied, `Downloads\X-Now` pre-created, and [Cobalt](https://cobalt.tools/) opened with the link pre-filled. The same hand-off is one tray click away (**Open Cobalt video downloader**).
 

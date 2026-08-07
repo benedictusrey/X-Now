@@ -20,7 +20,14 @@ The security, privacy, and integrity of **X-Now** and its users are top prioriti
 - **Your session stays local.** The signed-in session lives in WebView2's on-disk profile on *your* computer. X-Now has no profile manager and never sees your password — you sign in through X's own official page inside the app.
 - **Minimal native bridge.** The app exposes only a handful of narrow capabilities: opening safe external HTTP(S) URLs in the default browser, preparing the download folder, saving media bytes, and downloading a media URL that X itself has already exposed. Every command validates its input.
 - **External links are routed safely.** Only `http`/`https` URLs (with no CR/LF injection) are ever opened externally; everything else stays in-app or is denied.
-- **Media saving is opt-in and local.** Downloads go only to `Downloads\X-Now` (or your OS's equivalent download folder). Nothing is uploaded anywhere.
+## Capabilities & the remote page
+
+X-Now is a Tauri v2 app whose only page is the official x.com website. Tauri's access-control list (ACL) is therefore configured with least privilege:
+
+- **Local origin** (the app shell): `core:default` + `shell:allow-open`.
+- **Remote origin** (`https://x.com/*`, capability `remote-x-com`): **exactly four** app commands — `download_media` (curl a direct media URL to `Downloads\X-Now`), `save_media_bytes` (write in-page-fetched bytes), `open_external_url` (open a link in the OS default browser), `prepare_download_folder` (create the folder). The x.com page cannot reach window, shell, file-system, or any other command.
+
+Media saving is opt-in and local. Downloads go only to `Downloads\X-Now` (or your OS's equivalent download folder). Nothing is uploaded anywhere.
 - **Media is fetched as the page exposes it.** X-Now downloads X's CDN URLs (`pbs.twimg.com`, `video.twimg.com`) with a standard browser user-agent and the post URL as referer; it does not bypass X access controls.
 - **Video hand-off is a browser redirect.** When X exposes only a streamed `blob:` URL, the video path opens the external [Cobalt](https://cobalt.tools/) service in your default browser; X-Now does not store the copied post link.
 
