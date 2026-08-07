@@ -505,7 +505,8 @@ async fn download_media(
     tokio::task::spawn_blocking(move || -> Result<String, String> {
         // Windows ships `curl.exe`; macOS/Linux use the system `curl`.
         let curl = if cfg!(windows) { "curl.exe" } else { "curl" };
-        let output = Command::new(curl)
+        let mut command = Command::new(curl);
+        command
             .args([
                 "--fail",
                 "--location",
@@ -524,7 +525,15 @@ async fn download_media(
             .arg(referer)
             .args(["--header", "Accept: */*", "--output"])
             .arg(&target_path)
-            .arg(&url)
+            .arg(&url);
+        // Windows: spawn curl with CREATE_NO_WINDOW so no console window
+        // flashes next to the app during media downloads.
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            command.creation_flags(0x08000000);
+        }
+        let output = command
             .output()
             .map_err(|error| format!("Unable to start {curl}: {error}"))?;
 
@@ -596,6 +605,11 @@ async fn save_media_bytes(
             let _ = fs::remove_file(&target_path);
             return Err("The saved media file was empty.".to_string());
         }
+        eprintln!(
+            "[X-Now] save_media_bytes OK: {} bytes -> {}",
+            metadata.len(),
+            target_path.display()
+        );
         Ok(target_path.to_string_lossy().into_owned())
     })
     .await

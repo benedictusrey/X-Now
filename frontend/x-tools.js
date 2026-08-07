@@ -58,17 +58,70 @@
 
     .xnow-toast {
       position: fixed;
-      right: 18px;
-      bottom: 18px;
+      right: 16px;
+      bottom: 16px;
       z-index: 2147483647;
-      max-width: min(460px, calc(100vw - 36px));
-      padding: 11px 14px;
-      border: 1px solid rgba(255, 255, 255, 0.16);
-      border-radius: 10px;
-      background: rgba(15, 20, 25, 0.96);
-      color: #fff;
-      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3);
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      max-width: 380px;
+      padding: 12px 16px;
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      border-radius: 14px;
+      background: rgba(15, 20, 25, 0.95);
+      box-shadow: 0 12px 34px rgba(0, 0, 0, 0.45);
       font: 13px "Segoe UI", Arial, sans-serif;
+      color: #fff;
+      animation: xnow-toast-in 0.25s ease-out;
+      pointer-events: auto;
+    }
+
+    @keyframes xnow-toast-in {
+      from { opacity: 0; transform: translateY(14px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .xnow-toast-icon {
+      flex: 0 0 22px;
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .xnow-toast-icon.success { background: rgba(0, 186, 124, 0.2); color: #00ba7c; }
+    .xnow-toast-icon.error { background: rgba(244, 33, 46, 0.2); color: #f4212e; }
+    .xnow-toast-icon.info { background: rgba(29, 155, 240, 0.2); color: #1d9bf0; }
+
+    .xnow-toast-spinner {
+      width: 14px;
+      height: 14px;
+      border: 2px solid rgba(29, 155, 240, 0.3);
+      border-top-color: #1d9bf0;
+      border-radius: 50%;
+      animation: xnow-toast-spin 0.8s linear infinite;
+    }
+
+    @keyframes xnow-toast-spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .xnow-toast-title {
+      font-weight: 600;
+      line-height: 1.35;
+      white-space: normal;
+    }
+
+    .xnow-toast-sub {
+      margin-top: 2px;
+      font-size: 12px;
+      line-height: 1.3;
+      color: rgba(255, 255, 255, 0.72);
+      word-break: break-all;
     }
   `;
 
@@ -278,10 +331,15 @@
       if (url) return url;
     }
     const container = media.closest("article, [role=dialog]");
-    const link = container?.querySelector?.("a[href*='/status/']");
-    if (link) {
-      const url = normalizeXPostUrl(link.href);
-      if (url) return url;
+    if (container) {
+      const links = Array.from(container.querySelectorAll("a[href*='/status/']"));
+      // Prefer the status link that actually wraps the media (dialog views can
+      // contain several posts), then the container's first status link.
+      const link = links.find(candidate => candidate.contains(media)) || links[0];
+      if (link) {
+        const url = normalizeXPostUrl(link.href);
+        if (url) return url;
+      }
     }
     const canonicalUrl = document.querySelector("link[rel='canonical']")?.href
       || document.querySelector("meta[property='og:url']")?.content;
@@ -378,10 +436,11 @@
       if (!url || candidates.includes(url)) return;
       candidates.push(url);
     };
-    // Order: for IMAGES prefer the full-resolution variants first (orig/large —
-    // the element usually only exposes a small thumbnail), with the element's
-    // own URL as the freshest-signature fallback; for VIDEOS the live element
-    // URL first (blob: URLs are filtered at the end), then variants/resources.
+    // Order: element/variant URLs, then POST-SCOPED candidates (the post
+    // page's og:video/og:image — always the clicked post, never a neighbour),
+    // and only as a last resort the PAGE-WIDE resource entries (they include
+    // every video/image the page loaded, so they can point at another post —
+    // the cause of 'video always downloaded the first post').
     if (media instanceof HTMLImageElement) {
       resolutionVariants(directUrl).forEach(addCandidate);
       addCandidate(directUrl);
@@ -389,8 +448,8 @@
       addCandidate(directUrl);
       resolutionVariants(directUrl).forEach(addCandidate);
     }
-    mediaUrlsFromResources(media).forEach(addCandidate);
     (await mediaUrlsFromPost(postUrlForMedia(media))).forEach(addCandidate);
+    mediaUrlsFromResources(media).forEach(addCandidate);
     return candidates.filter(url => /^https?:\/\//i.test(url));
   }
 
@@ -405,22 +464,66 @@
     window.open(url, "_blank", "noopener,noreferrer");
   }
 
-  function showToast(message) {
+  // Bottom-right notification card: icon + title + optional sub-line.
+  // kind: "spinner" (sticky, no auto-dismiss) | "success" | "error" | "info".
+  function renderToast({ title, sub = "", kind = "success", sticky = false }) {
     state.toast?.remove();
     const toast = document.createElement("div");
     toast.className = "xnow-toast";
-    toast.textContent = message;
+    toast.setAttribute("role", "status");
+
+    const icon = document.createElement("div");
+    icon.className = `xnow-toast-icon ${kind}`;
+    if (kind === "spinner") {
+      const ring = document.createElement("span");
+      ring.className = "xnow-toast-spinner";
+      icon.appendChild(ring);
+    } else {
+      icon.textContent = kind === "error" ? "✕" : kind === "info" ? "ℹ" : "✓";
+    }
+
+    const body = document.createElement("div");
+    body.className = "xnow-toast-body";
+    const titleEl = document.createElement("div");
+    titleEl.className = "xnow-toast-title";
+    titleEl.textContent = title;
+    body.appendChild(titleEl);
+    if (sub) {
+      const subEl = document.createElement("div");
+      subEl.className = "xnow-toast-sub";
+      subEl.textContent = sub;
+      body.appendChild(subEl);
+    }
+
+    toast.append(icon, body);
     document.body.appendChild(toast);
     state.toast = toast;
-    window.setTimeout(() => {
-      if (state.toast === toast) {
-        toast.remove();
-        state.toast = null;
-      }
-    }, 5000);
+    if (!sticky) {
+      window.setTimeout(() => {
+        if (state.toast === toast) {
+          toast.remove();
+          state.toast = null;
+        }
+      }, 4500);
+    }
+    return toast;
   }
-  // Exposed for Rust-side evals (tray menu feedback, watchdog reports).
+
+  // Backward-compatible surface (also used by Rust-side tray evals).
+  function showToast(message, kind = "success") {
+    renderToast({ title: message, kind });
+  }
   window.showToast = showToast;
+
+  // Success card: "Saved video/image" + the download folder as the sub-line.
+  function showSavedToast(kind, savedPath) {
+    const folder = String(savedPath || "").replace(/[\\/][^\\/]+$/, "");
+    renderToast({
+      title: `Saved ${kind} ✓`,
+      sub: folder || "Downloads\\X-Now",
+      kind: "success"
+    });
+  }
 
   async function saveBytesInApp(buffer, kind) {
     if (!hasNativeBridge()) throw new Error("X-Now native bridge is unavailable.");
@@ -473,13 +576,16 @@
 
     const cobaltUrl = `https://cobalt.tools/?u=${encodeURIComponent(postUrl)}`;
     openDefaultBrowser(cobaltUrl);
-    showToast(`Copied the post link and opened Cobalt. Choose Save and use ${downloadFolder}.`);
+    showToast(`Copied the post link and opened Cobalt. Choose Save and use ${downloadFolder}.`, "info");
   }
 
   async function saveMedia(media) {
     const kind = media instanceof HTMLVideoElement ? "video" : "image";
     const postUrl = postUrlForMedia(media);
     const referer = postUrl || "https://x.com/";
+
+    // "Downloading…" card (bottom-right, spinner, stays until done).
+    renderToast({ title: `Downloading ${kind}…`, sub: "Please wait", kind: "spinner", sticky: true });
 
     const sources = await mediaUrlCandidates(media);
     console.warn("[X-Now] saveMedia candidates:", sources);
@@ -490,7 +596,7 @@
         await openCobaltForVideo(media);
         return;
       }
-      showToast("X did not expose a direct image URL; try opening the post in your browser.");
+      showToast("X did not expose a direct image URL; try opening the post in your browser.", "info");
       return;
     }
 
@@ -503,7 +609,7 @@
             mediaType: kind,
             referer
           });
-          showToast(`Saved ${kind} to ${savedPath}`);
+          showSavedToast(kind, savedPath);
           return;
         } catch (error) {
           lastError = String(error?.message || error);
@@ -512,7 +618,7 @@
       }
       try {
         const savedPath = await downloadFromSignedInPage(source, kind);
-        showToast(`Saved ${kind} to ${savedPath}`);
+        showSavedToast(kind, savedPath);
         return;
       } catch (error) {
         lastError = String(error?.message || error);
@@ -534,7 +640,7 @@
       console.warn("X-Now could not set the diagnostic title:", error);
     }
     showToast(`X blocked this image download (${reason}). ` +
-      "Open the post in your browser and try again.");
+      "Open the post in your browser and try again.", "error");
   }
 
   async function openMediaInBrowser(media) {

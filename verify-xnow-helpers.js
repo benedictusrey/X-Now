@@ -90,7 +90,8 @@ assert(doc.querySelectorAll('style').length === 1, 'style injected exactly once 
 assert(typeof window.showToast === 'function', 'showToast exposed on window');
 window.showToast('hello');
 let toast = doc.querySelector('.xnow-toast');
-assert(!!toast && toast.textContent === 'hello', 'showToast creates .xnow-toast with the message');
+assert(!!toast && toast.querySelector('.xnow-toast-title')?.textContent === 'hello',
+  'showToast creates .xnow-toast with the message');
 window.showToast('second');
 assert(doc.querySelectorAll('.xnow-toast').length === 1, 'showToast replaces the previous toast');
 
@@ -307,6 +308,47 @@ win2.setTimeout(() => {
     const mediaFetch = fetchCalls.find(f => /twimg\.com/.test(f.url));
     assert(mediaFetch && mediaFetch.creds === 'omit', 'cross-origin media fetch uses credentials omit (CORS-safe)');
     assert(invoked.some(c => c.cmd === 'save_media_bytes'), 'fallback saved bytes via save_media_bytes');
+
+    // D: blob-only VIDEO must download the CLICKED post's video (og:video from
+    // its post page), NEVER the first post's mp4 from page-wide resources —
+    // the 'always downloaded the first post' regression.
+    win2.fetch = async (url, opts) => {
+      fetchCalls.push({ url, creds: opts && opts.credentials });
+      if (/\/status\//.test(url)) {
+        return {
+          ok: true,
+          headers: { get: () => 'text/html' },
+          text: async () => '<html><head><meta property="og:video" content="https://video.twimg.com/ext_tw_video/987654/pu/vid/avc1/720x720/SECOND.mp4?format=mp4"/></head></html>'
+        };
+      }
+      return { ok: true, headers: { get: () => 'image/jpeg' }, arrayBuffer: async () => new ArrayBuffer(16) };
+    };
+    win2.performance.getEntriesByType = () => [
+      { name: 'https://video.twimg.com/ext_tw_video/111111/pu/vid/avc1/720x720/FIRST.mp4', initiatorType: 'video' },
+      { name: 'https://video.twimg.com/ext_tw_video/222222/pu/vid/avc1/720x720/OTHER.mp4', initiatorType: 'video' }
+    ];
+    const articleD = win2.document.createElement('article');
+    articleD.setAttribute('data-testid', 'tweet');
+    const linkD = win2.document.createElement('a');
+    linkD.href = 'https://x.com/someone/status/1234567890123';
+    const videoD = win2.document.createElement('video');
+    videoD.dataset.testRect = '300,300,0,0';
+    videoD.src = 'blob:https://x.com/vid-clicked';
+    articleD.appendChild(linkD);
+    articleD.appendChild(videoD);
+    win2.document.body.appendChild(articleD);
+    videoD.dispatchEvent(new win2.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 60, clientY: 60 }));
+    const menuD = win2.document.querySelector('.xnow-media-menu');
+    const btnD = Array.from(menuD.querySelectorAll('button')).find(b => b.textContent.includes('Save video'));
+    btnD.click();
+    await new Promise(r => setTimeout(r, 200));
+    const dlD = invoked.filter(c => c.cmd === 'download_media' && /SECOND|FIRST|OTHER/.test(c.url));
+    assert(dlD.length >= 1 && dlD[0].url.includes('SECOND.mp4'),
+      'blob video resolves to the CLICKED post og:video (post page wins over page-wide resources)');
+    assert(!invoked.some(c => c.cmd === 'download_media' && c.url.includes('FIRST.mp4')),
+      'first post mp4 from resources never tried for the clicked video');
+    const toastD = win2.document.querySelector('.xnow-toast');
+    assert(toastD && toastD.textContent.includes('Saved video'), 'video success toast shown');
 
     // ── Cleanup sanity: single style element across the whole session ──────────
     assert(doc.querySelectorAll('style').length === 1, 'no style duplication after route polls');
