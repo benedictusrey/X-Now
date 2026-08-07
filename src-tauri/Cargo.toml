@@ -21,6 +21,9 @@ tauri = { version = "2", features = ["tray-icon", "devtools"] }
 tauri-plugin-shell = "2"
 tauri-plugin-autostart = "2"
 tokio = { version = "1", features = ["full"] }
+# Tiny pure-Rust helper: embeds the app icon into the About overlay as a
+# base64 data URI (works on the remote x.com page on every platform).
+base64 = "0.22"
 
 # Windows-only: Core Audio session mute/unmute for the process tree (audio.rs).
 # MUST stay target-gated — the `windows` crate pins windows-future 0.2.1, whose

@@ -22,10 +22,14 @@
 - **Stale-silence fix.** Windows can persist an old audio-session mute across restarts; a startup watchdog clears it automatically, so a fresh launch is never mysteriously silent (verified with an OS audio peak meter).
 
 ### 💾 One-click media saving
-- Right-click any image or video in your feed and save it straight to `Downloads\X-Now` — no copy/paste, no third-party downloader. Media is fetched from X's own CDN URLs exactly as the page exposes them.
+- Right-click any **image** and save it straight to `Downloads\X-Now` — the best direct URL is resolved automatically (element source → loaded CDN resources → the post page's own `og:image`).
+- Right-click any **video** — X-Now tries a direct MP4 save from X's own CDN first; when X only exposes a streamed `blob:` URL, it falls back to the proven IG-Now hand-off: post link copied, `Downloads\X-Now` pre-created, and [Cobalt](https://cobalt.tools/) opened with the link pre-filled. The same hand-off is one tray click away (**Open Cobalt video downloader**).
+
+### 🔗 Links go where they belong
+- **Click any external link** (outside x.com, including `t.co` redirects) — X-Now hands it to your default browser, which opens it automatically as the system handler. X's own posts, profiles and notifications stay in-app.
 
 ### 🎨 Seamless in-app About
-- Tray → **About X-Now** now opens a polished overlay **inside the X window** — X-branded card, live version, author link — no more separate window hop.
+- Tray → **About X-Now** now opens a polished overlay **inside the X window** — the real X-Now app icon, live version, and a **"Built with ❤️ by @benedictusrey"** credit — no separate window hop.
 
 ### 🔐 Seamless in-app login
 - Google & Apple sign-in popups are managed **inside the app** (dark-styled OAuth windows that auto-close the moment the token relays back to x.com) — the `postMessage` login flow never breaks, unlike a browser hand-off.
@@ -48,7 +52,7 @@
 | Tray menu | No Show/Hide, no autostart | **Show / Hide X-Now** + **🚀 Launch on Startup** |
 | Startup | Always opened a window | Optional **hidden-to-tray** launch via autostart |
 | About | Separate small window | **In-page overlay** with X branding |
-| Media | Browser right-click only | **Right-click save** to `Downloads\X-Now` |
+| Media | Browser right-click only | **Right-click save** to `Downloads\X-Now` — images direct, videos direct MP4 or Cobalt hand-off |
 | Audio reliability | Relied on page behavior | **OS-level session mute** + stale-mute cleanup + on-screen resume rules |
 | Source layout | `src-tauri` not in the repo (builds broke on fresh clones) | **Full Rust backend committed** — anyone can build; CI is green |
 | Docs | README only | README + Release Notes + Changelog + Security + Contributing, with per-platform guides |

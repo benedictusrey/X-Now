@@ -83,6 +83,8 @@ cargo tauri build --ci
 2. `cargo build --release` compiles with no new warnings.
 3. The pause-on-minimize helpers still pass their jsdom regression harness (see below).
 4. Manual smoke test on your platform: login → play a video → minimize → audio stops → restore → audio resumes → close (✕) → app stays in tray → tray click restores.
+5. Click an external link (e.g. a `t.co` link in a post) → it must open in the OS default browser; X's own links must stay in-app.
+6. Right-click an image → save lands in `Downloads\X-Now`; right-click a video → direct MP4 save, or the Cobalt hand-off with the folder pre-created.
 
 ### jsdom regression harness
 The injected script is tested headlessly with jsdom (the same harness pattern used across the *-Now apps):

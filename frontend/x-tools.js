@@ -281,11 +281,53 @@
         const initiatorType = String(entry.initiatorType || "").toLowerCase();
         if (isVideo && initiatorType === "video") return true;
         return isVideo
-          ? /\.mp4(?:[?#]|$)/i.test(url) || /\/ext_tw_video\//i.test(url)
-          : /\.(?:jpe?g|png|webp|avif)(?:[?#]|$)/i.test(url) && /pbs\.twimg\.com/i.test(url);
+          ? /\/(?:ext_tw_video|video)\//i.test(url) || /\.mp4(?:[?#]|$)/i.test(url)
+          : /\/(?:media|ext_tw_video|video)\//i.test(url) && /\.(?:jpe?g|png|webp|avif)(?:[?#]|$)/i.test(url);
       })
       .map(entry => entry.name);
     return Array.from(new Set(resources.reverse()));
+  }
+
+  // X embeds JSON-escaped and HTML-escaped URLs in its pages — unescape them
+  // so candidate URLs are actually fetchable (ported from the IG-Now tools).
+  function normalizeMediaUrl(url) {
+    return String(url || "")
+      .replaceAll("\\u0026", "&")
+      .replaceAll("\\u003A", ":")
+      .replaceAll("\\u002F", "/")
+      .replaceAll("\\u003F", "?")
+      .replaceAll("\\u003D", "=")
+      .replaceAll("\\/", "/")
+      .replaceAll("&amp;", "&");
+  }
+
+  // The IG-Now method: probe the post's own page for its canonical media —
+  // og:video / og:image metas plus any video.twimg / pbs.twimg URLs embedded
+  // in the HTML. Covers the cases where the <video> only exposes a blob: URL
+  // (MSE streaming) and resource entries are missing.
+  async function mediaUrlsFromPost(postUrl) {
+    if (!postUrl) return [];
+    try {
+      const response = await fetch(postUrl, { credentials: "include" });
+      if (!response.ok) return [];
+      const html = await response.text();
+      const fragment = new DOMParser().parseFromString(html, "text/html");
+      const metaUrls = Array.from(fragment.querySelectorAll(
+        "meta[property='og:video'], meta[property='og:video:secure_url'], " +
+        "meta[property='og:video:url'], meta[property='og:image'], " +
+        "meta[property='og:image:secure_url']"
+      )).map(meta => normalizeMediaUrl(meta.content));
+      const textUrls = normalizeMediaUrl(html).match(/https?:\/\/[^"'\s]+/g) || [];
+      const candidates = [...metaUrls, ...textUrls].filter(url =>
+        /^https?:\/\//i.test(url)
+        && (/video\.twimg\.com\//i.test(url)
+          || (/pbs\.twimg\.com\//i.test(url) && /\.(?:jpe?g|png|webp|avif)(?:[?#]|$)/i.test(url))
+          || /\.mp4(?:[?#]|$)/i.test(url)));
+      return Array.from(new Set(candidates));
+    } catch (error) {
+      console.warn("X-Now could not inspect the post page for media URLs:", error);
+      return [];
+    }
   }
 
   async function mediaUrlCandidates(media) {
@@ -301,11 +343,13 @@
       // exposes a blob.
       mediaUrlsFromResources(media).forEach(addCandidate);
       addCandidate(directUrl);
+      (await mediaUrlsFromPost(postUrlForMedia(media))).forEach(addCandidate);
     } else {
       addCandidate(directUrl);
       mediaUrlsFromResources(media).forEach(addCandidate);
+      (await mediaUrlsFromPost(postUrlForMedia(media))).forEach(addCandidate);
     }
-    return candidates;
+    return candidates.filter(url => /^https?:\/\//i.test(url));
   }
 
   function openDefaultBrowser(url) {
@@ -357,6 +401,35 @@
     return saveBytesInApp(buffer, kind);
   }
 
+  // IG-Now's video hand-off: copy the exact post link, prepare the download
+  // folder, and open cobalt.tools with the link pre-filled — the user picks
+  // the format there and saves into the prepared folder.
+  async function openCobaltForVideo(media) {
+    const postUrl = postUrlForMedia(media);
+    if (!postUrl) {
+      showToast("X did not expose a post link. Use More > Copy link, then open cobalt.tools.");
+      return;
+    }
+    try {
+      await navigator.clipboard?.writeText(postUrl);
+    } catch (error) {
+      console.warn("X-Now could not copy the post link:", error);
+    }
+
+    let downloadFolder = "Downloads\\X-Now";
+    if (typeof invoke === "function") {
+      try {
+        downloadFolder = await invoke("prepare_download_folder");
+      } catch (error) {
+        console.warn("X-Now could not prepare the download folder:", error);
+      }
+    }
+
+    const cobaltUrl = `https://cobalt.tools/?u=${encodeURIComponent(postUrl)}`;
+    openDefaultBrowser(cobaltUrl);
+    showToast(`Copied the post link and opened Cobalt. Choose Save and use ${downloadFolder}.`);
+  }
+
   async function saveMedia(media) {
     const kind = media instanceof HTMLVideoElement ? "video" : "image";
     const postUrl = postUrlForMedia(media);
@@ -364,36 +437,45 @@
 
     const sources = await mediaUrlCandidates(media);
     if (!sources.length) {
-      showToast("X did not expose a direct media URL; try opening the post in your browser.");
+      // No direct URL at all (e.g. blob-only MSE streams) — the IG-Now method
+      // still gets the video: copy the post link + open Cobalt.
+      if (kind === "video") {
+        await openCobaltForVideo(media);
+        return;
+      }
+      showToast("X did not expose a direct image URL; try opening the post in your browser.");
       return;
     }
 
-    if (typeof invoke === "function") {
-      for (const source of sources) {
-        if (/^https?:\/\//i.test(source)) {
-          try {
-            const savedPath = await invoke("download_media", {
-              url: source,
-              mediaType: kind,
-              referer
-            });
-            showToast(`Saved ${kind} to ${savedPath}`);
-            return;
-          } catch (error) {
-            console.warn("X-Now native URL media download failed; trying the next source:", error);
-          }
-        }
+    for (const source of sources) {
+      if (typeof invoke === "function") {
         try {
-          const savedPath = await downloadFromSignedInPage(source, kind);
+          const savedPath = await invoke("download_media", {
+            url: source,
+            mediaType: kind,
+            referer
+          });
           showToast(`Saved ${kind} to ${savedPath}`);
           return;
         } catch (error) {
-          console.warn("X-Now signed-in media save failed; trying the next source:", error);
+          console.warn("X-Now native URL media download failed; trying the next source:", error);
         }
+      }
+      try {
+        const savedPath = await downloadFromSignedInPage(source, kind);
+        showToast(`Saved ${kind} to ${savedPath}`);
+        return;
+      } catch (error) {
+        console.warn("X-Now signed-in media save failed; trying the next source:", error);
       }
     }
 
-    showToast("X blocked this media download. Open the post in your browser and try again.");
+    // Every direct path failed — hand the video off to Cobalt (IG-Now method).
+    if (kind === "video") {
+      await openCobaltForVideo(media);
+      return;
+    }
+    showToast("X blocked this image download. Open the post in your browser and try again.");
   }
 
   async function openMediaInBrowser(media) {
@@ -451,6 +533,38 @@
   document.addEventListener("click", event => {
     if (elementFromTarget(event.target)?.closest?.(".xnow-media-menu")) return;
     closeMenu();
+  }, true);
+
+  // ── External link handoff ─────────────────────────────────────────────────
+  // A plain left-click on any link that leaves X (external site, t.co
+  // redirect, mailto:) is intercepted in the CAPTURE phase and handed to the
+  // OS default browser via the native bridge — the browser loads it
+  // automatically as the system's handler. X's own links (x.com / twitter.com
+  // posts, profiles, notifications…) stay in-app, and modifier-click /
+  // middle-click behaviour is untouched (those still go through the Rust
+  // new-window router to the browser).
+  function isExternalLink(href) {
+    if (!href) return false;
+    try {
+      const url = new URL(href, window.location.href);
+      if (url.protocol !== "http:" && url.protocol !== "https:") return true;
+      const host = url.hostname.toLowerCase();
+      return !(host === "x.com" || host.endsWith(".x.com")
+        || host === "twitter.com" || host.endsWith(".twitter.com"));
+    } catch (error) {
+      return false;
+    }
+  }
+
+  document.addEventListener("click", event => {
+    if (event.button !== 0) return;
+    if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+    if (elementFromTarget(event.target)?.closest?.(".xnow-media-menu")) return;
+    const link = linkFromTarget(event.target);
+    if (!link || !isExternalLink(link.href)) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    openDefaultBrowser(link.href);
   }, true);
 
   document.addEventListener("contextmenu", event => {

@@ -12,8 +12,9 @@ All notable changes to **X-Now** are documented here. The format follows [Keep a
 - **Smart tray toggle**: tray-icon click and the new **"Show / Hide X-Now"** menu item restore the app whenever it is minimized/hidden/unfocused, and hide it (pausing first) only when visible and focused.
 - **🚀 Launch on Startup** tray toggle — starts hidden to the tray (`--minimized`) so autostart never pops a window over your work.
 - **Stale audio-session cleanup**: a startup watchdog clears any Windows-persisted session mute within seconds of launch, and reports OS session state (mute/volume/peak) for diagnostics.
-- **One-click media saving**: right-click images/videos in the feed → saved directly to `Downloads\X-Now` via the native bridge (X's own CDN URLs, MP4-validated).
-- **Seamless About overlay**: tray → About renders an in-app overlay inside the X window (X branding, version, author link) — no separate window.
+- **One-click media saving**: right-click images → saved directly to `Downloads\X-Now` via the native bridge (multi-source URL resolution incl. post-page `og:image` probing, MP4-validated); right-click videos → direct MP4 save from X's CDN when available, otherwise the IG-Now hand-off (post link copied + Cobalt opened with the folder pre-created). Tray shortcut: **Open Cobalt video downloader**.
+- **Seamless About overlay**: tray → About renders an in-app overlay inside the X window — the real X-Now app icon (embedded data URI), version, and a **"Built with ❤️ by @benedictusrey"** credit — no separate window.
+- **External link handoff**: a plain click on any link outside x.com (including `t.co` redirects) opens it in the OS default browser automatically; X's own links stay in-app.
 - **Titlebar username**: the native title becomes `X-Now (@handle)` after sign-in, detected from X's own profile tab.
 - **Seamless in-app login**: Google & Apple OAuth popups open as managed in-app windows (dark-styled, auto-closing on token relay) so the `postMessage` login flow works exactly like X's own web app.
 - **Documentation suite**: `RELEASE_NOTES.md`, `CHANGELOG.md`, `SECURITY.md`, `CONTRIBUTING.md` with per-platform (Windows/macOS/Linux) guides.

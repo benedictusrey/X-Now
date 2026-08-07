@@ -203,6 +203,39 @@ win2.setTimeout(() => {
   profileLink.setAttribute('href', '/benedictusrey');
   doc2.body.appendChild(profileLink);
   doc2.title = 'Home / X';
+
+  // ── External link handoff: plain clicks leave X via the default browser ────
+  const opened = [];
+  win2.open = (url) => { opened.push(url); return null; };
+  const externalLink = doc2.createElement('a');
+  externalLink.href = 'https://example.com/article';
+  externalLink.textContent = 'external';
+  doc2.body.appendChild(externalLink);
+  const externalClick = new win2.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
+  const externalPrevented = !externalLink.dispatchEvent(externalClick);
+  assert(externalPrevented, 'external link click is intercepted');
+  assert(opened.includes('https://example.com/article'), 'external link handed to the default browser');
+
+  const tcoLink = doc2.createElement('a');
+  tcoLink.href = 'https://t.co/abc123';
+  tcoLink.textContent = 'tco';
+  doc2.body.appendChild(tcoLink);
+  const tcoPrevented = !tcoLink.dispatchEvent(new win2.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
+  assert(tcoPrevented && opened.includes('https://t.co/abc123'), 't.co redirect link handed to the browser');
+
+  const internalLink = doc2.createElement('a');
+  internalLink.href = 'https://x.com/home';
+  internalLink.textContent = 'home';
+  doc2.body.appendChild(internalLink);
+  const internalPrevented = !internalLink.dispatchEvent(new win2.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
+  assert(internalPrevented === false, 'internal x.com link stays in-app (not intercepted)');
+  assert(!opened.includes('https://x.com/home'), 'internal link never handed to the browser');
+
+  const ctrlClick = new win2.MouseEvent('click', { bubbles: true, cancelable: true, button: 0, ctrlKey: true });
+  const ctrlPrevented = !externalLink.dispatchEvent(ctrlClick);
+  assert(ctrlPrevented === false, 'modifier-click on external link not intercepted (Rust router handles it)');
+  assert(opened.filter(u => u === 'https://example.com/article').length === 1, 'modifier-click did not double-open');
+
   win2.setTimeout(() => {
     assert(doc2.title === 'XNOW:benedictusrey', 'signed-in handle sets XNOW:<handle> title');
 

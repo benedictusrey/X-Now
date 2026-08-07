@@ -22,6 +22,7 @@ The security, privacy, and integrity of **X-Now** and its users are top prioriti
 - **External links are routed safely.** Only `http`/`https` URLs (with no CR/LF injection) are ever opened externally; everything else stays in-app or is denied.
 - **Media saving is opt-in and local.** Downloads go only to `Downloads\X-Now` (or your OS's equivalent download folder). Nothing is uploaded anywhere.
 - **Media is fetched as the page exposes it.** X-Now downloads X's CDN URLs (`pbs.twimg.com`, `video.twimg.com`) with a standard browser user-agent and the post URL as referer; it does not bypass X access controls.
+- **Video hand-off is a browser redirect.** When X exposes only a streamed `blob:` URL, the video path opens the external [Cobalt](https://cobalt.tools/) service in your default browser; X-Now does not store the copied post link.
 
 ## 🧪 Security-Conscious Development
 

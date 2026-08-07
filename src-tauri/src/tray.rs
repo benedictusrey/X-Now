@@ -1,5 +1,6 @@
 use std::error::Error;
 
+use base64::Engine;
 use tauri::{
     menu::{
         CheckMenuItemBuilder, Menu, MenuBuilder, MenuItemBuilder, PredefinedMenuItem,
@@ -31,18 +32,22 @@ fn build_menu(app: &AppHandle) -> Result<(Menu<Wry>, tauri::menu::MenuItem<Wry>)
     let copy_url = MenuItemBuilder::with_id("copy_url", "Copy current page URL").build(app)?;
     let open_browser =
         MenuItemBuilder::with_id("open_browser", "Open current page in browser").build(app)?;
+    let cobalt_guide =
+        MenuItemBuilder::with_id("cobalt_guide", "Open Cobalt video downloader").build(app)?;
     let autostart = MenuItemBuilder::with_id("autostart", "🚀 Launch on Startup").build(app)?;
 
     let usage_save = MenuItemBuilder::with_id(
         "usage_save",
-        "Right-click image/video: save to Downloads\\X-Now",
+        "Right-click image: save to Downloads\\X-Now; video: save or Cobalt hand-off",
     )
     .enabled(false)
     .build(app)?;
-    let usage_link =
-        MenuItemBuilder::with_id("usage_link", "Right-click link: open in default browser")
-            .enabled(false)
-            .build(app)?;
+    let usage_link = MenuItemBuilder::with_id(
+        "usage_link",
+        "Click any external link: opens in your default browser",
+    )
+    .enabled(false)
+    .build(app)?;
     let usage_escape =
         MenuItemBuilder::with_id("usage_escape", "Esc: close the media lightbox or a dialog")
             .enabled(false)
@@ -90,6 +95,7 @@ fn build_menu(app: &AppHandle) -> Result<(Menu<Wry>, tauri::menu::MenuItem<Wry>)
             .item(&devtools)
             .item(&copy_url)
             .item(&open_browser)
+            .item(&cobalt_guide)
             .item(&autostart)
             .item(&separator_tools)
             .item(&usage)
@@ -103,7 +109,9 @@ fn build_menu(app: &AppHandle) -> Result<(Menu<Wry>, tauri::menu::MenuItem<Wry>)
 
 /// In-page About overlay for the X window — the TikTok-Now pattern:
 /// a seamless card rendered INSIDE the page (no separate window hop). The
-/// `__VERSION__` placeholder is replaced with the real package version.
+/// `__VERSION__` placeholder is replaced with the real package version and
+/// `__ICON_DATA_URI__` with the app icon embedded as a base64 data URI (no
+/// asset-protocol calls — the overlay runs on the remote x.com page).
 const ABOUT_JS: &str = r##"(function() {
   var ID = '__xnow_about';
   var old = document.getElementById(ID);
@@ -143,22 +151,22 @@ const ABOUT_JS: &str = r##"(function() {
     'color:#8e8ea0;font-size:26px;cursor:pointer;line-height:1;');
   card.appendChild(closeX);
 
-  // X logo mark (inline SVG — no asset loading on the remote page)
-  var svgNS = 'http://www.w3.org/2000/svg';
-  var svg = document.createElementNS(svgNS, 'svg');
-  svg.setAttribute('width', '64'); svg.setAttribute('height', '64');
-  svg.setAttribute('viewBox', '0 0 24 24');
-  svg.style.cssText = 'filter:drop-shadow(0 0 14px rgba(29,155,240,0.5));margin:0 auto 1rem;display:block;';
-  svg.innerHTML = '<path fill="#ffffff" d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>';
-  card.appendChild(svg);
+  // The real X-Now app icon (embedded data URI — works on the remote page)
+  var icon = document.createElement('img');
+  icon.src = '__ICON_DATA_URI__';
+  icon.alt = 'X-Now icon';
+  icon.style.cssText = 'width:92px;height:92px;border-radius:22px;border:1px solid rgba(255,255,255,0.14);' +
+    'box-shadow:0 10px 30px rgba(0,0,0,0.6),0 0 26px rgba(29,155,240,0.35);' +
+    'margin:0 auto 1rem;display:block;';
+  card.appendChild(icon);
 
   // Kicker — explicit line-height: X's global CSS sets tight heading
-  // line-heights, which CROPS gradient-clipped titles; every text element
-  // here pins its own.
+  // line-heights, which CROPS clipped titles; every text element here pins
+  // its own.
   var kicker = el('p',
     'color:#8e8ea0;font-size:10px;font-weight:800;letter-spacing:1.5px;' +
     'line-height:1.4;margin:0 0 4px;text-transform:uppercase;');
-  kicker.textContent = 'X Desktop View';
+  kicker.textContent = 'X Desktop Wrapper';
   card.appendChild(kicker);
 
   // Title
@@ -185,12 +193,14 @@ const ABOUT_JS: &str = r##"(function() {
     'silence on minimize.';
   card.appendChild(desc);
 
-  // Author
-  var author = el('div', 'font-size:0.78rem;line-height:1.5;color:#8e8ea0;margin-bottom:1.5rem;');
+  // Built-by credit
+  var built = el('p',
+    'color:#fff;font-size:0.85rem;font-weight:700;line-height:1.5;margin:0 0 1.5rem;');
+  built.appendChild(document.createTextNode('Built with \u2764\ufe0f by '));
   var authorLink = document.createElement('a');
   authorLink.textContent = '@benedictusrey';
   authorLink.href = 'https://github.com/benedictusrey';
-  authorLink.style.cssText = 'color:#1D9BF0;text-decoration:none;font-weight:bold;cursor:pointer;';
+  authorLink.style.cssText = 'color:#1D9BF0;text-decoration:none;cursor:pointer;';
   authorLink.onclick = function(e) {
     e.preventDefault();
     e.stopImmediatePropagation();
@@ -207,9 +217,8 @@ const ABOUT_JS: &str = r##"(function() {
       window.open('https://github.com/benedictusrey', '_blank');
     }
   };
-  author.appendChild(document.createTextNode('Authored and maintained with \u2764\ufe0f by '));
-  author.appendChild(authorLink);
-  card.appendChild(author);
+  built.appendChild(authorLink);
+  card.appendChild(built);
 
   // Got It button
   var gotit = btn('Got It!',
@@ -284,7 +293,15 @@ fn show_about(app: &AppHandle) {
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
-        let about_js = ABOUT_JS.replace("__VERSION__", env!("CARGO_PKG_VERSION"));
+        // Embed the real app icon as a data URI so the overlay works on the
+        // remote x.com page (no asset-protocol / mixed-content issues on any
+        // platform). 128x128.png is ~4.7 KB — negligible in the binary.
+        let icon_b64 = base64::engine::general_purpose::STANDARD
+            .encode(include_bytes!("../../icons/128x128.png"));
+        let icon_data_uri = format!("data:image/png;base64,{}", icon_b64);
+        let about_js = ABOUT_JS
+            .replace("__VERSION__", env!("CARGO_PKG_VERSION"))
+            .replace("__ICON_DATA_URI__", &icon_data_uri);
         let _ = window.eval(&about_js);
     }
 }
@@ -371,6 +388,11 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn Error>> {
                             }
                         }
                     }
+                }
+            }
+            "cobalt_guide" => {
+                if let Err(error) = app.shell().open("https://cobalt.tools/", None) {
+                    eprintln!("[X-Now] Failed to open the Cobalt setup guide: {error}");
                 }
             }
             "autostart" => {

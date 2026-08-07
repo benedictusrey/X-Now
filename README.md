@@ -72,10 +72,12 @@ Same X, same account, same feed — but the *wrapper around it* is where the des
 | **Close button** | Closes to the tray — app keeps running, media pauses instantly | Closes the tab and the whole browser stays heavy |
 | **Minimize** | Video audio stops the moment the window hides (page + OS audio-session mute, double-guaranteed) | Tab keeps playing audio in the background |
 | **Launch on startup** | Optional — starts hidden to the tray, ready when you are | Must re-open the browser and the tab |
-| **Saving media** | Right-click image/video → saved to `Downloads\X-Now` in one action | Browser right-click menu — often blocked by the site |
-| **External links** | X links stay in-app; everything else opens in your default browser | New tabs pile up |
-| **Login** | Google & Apple sign-in popups open inside the app — the OAuth token relay stays intact | Popup-blockers and tab juggling |
+| **Saving images** | Right-click image → saved to `Downloads\X-Now` in one action | Browser right-click menu — often blocked by the site |
+| **Saving videos** | Right-click video → direct MP4 save when X exposes the URL, otherwise the post link is copied and [Cobalt](https://cobalt.tools/) opens with `Downloads\X-Now` pre-created | Manual copy/paste between tabs |
+| **External links** | One click on any outside link — your default browser opens it as the system handler | New tabs pile up |
+| **Login** | Google & Apple sign-in popups open inside the app — the OAuth token relay stays intact, and the popup closes itself after login | Popup-blockers and tab juggling |
 | **Titlebar** | Shows `X-Now (@yourhandle)` once signed in | Browser tab title only |
+| **About & identity** | In-app About card with the X-Now icon and the author's credit — no window hop | No equivalent |
 | **Always on top** | One tray toggle pins the window above everything | Not possible |
 | **Memory footprint** | One lean WebView2 process (≈7 MB binary, no Electron) | A full browser engine + every extension |
 
@@ -136,9 +138,9 @@ X-Now never adds duplicate player chrome: play, mute, fullscreen, captions and q
 
 ## Saving & Opening Media
 
-### Images & Videos
+### Images
 
-Right-click any image or video in your feed and choose the save action. X-Now creates the folder below when needed and writes the media there:
+Right-click any image in your feed and choose **Save image**. X-Now resolves the best direct URL (the element's source, the loaded CDN resources, or the post page's own `og:image`), creates the folder below when needed, and writes the image there:
 
 ```text
 %USERPROFILE%\Downloads\X-Now
@@ -146,11 +148,24 @@ Right-click any image or video in your feed and choose the save action. X-Now cr
 
 *(On macOS and Linux, the equivalent user Downloads folder is used.)*
 
-X media is saved from X's own CDN URLs (`pbs.twimg.com` images, `video.twimg.com` videos) exactly as the page exposes them — X-Now does not bypass X access controls.
+### Videos
+
+Right-click any video and choose **Save video**. X-Now first tries a direct MP4 save from X's own CDN (`video.twimg.com`) — exactly the URL the page exposed. When X only exposes a streamed `blob:` URL (no direct MP4), X-Now falls back to the IG-Now hand-off method:
+
+1. Copies the exact post link to your clipboard.
+2. Pre-creates `Downloads\X-Now`.
+3. Opens [Cobalt](https://cobalt.tools/?u=<post-link>) in your default browser with the link pre-filled.
+4. Choose the format there and save into the prepared folder.
+
+The same hand-off is one tray click away: **Open Cobalt video downloader**.
+
+> X-Now downloads X's own CDN URLs exactly as the page exposes them — it does not bypass X access controls, and media rights belong to the post's author.
 
 ### Default Browser
 
-Use the media menu's **Open post in default browser** action, or right-click any X link and choose **Open link in default browser**. The native Tauri shell validates the destination as an HTTP(S) URL before opening.
+- **Click any external link** (a link pointing outside x.com, including `t.co` redirects) — X-Now hands it to your default browser, which opens it automatically as the system handler. X's own links (posts, profiles, notifications) stay in-app.
+- Right-click a link and choose **Open link in default browser** for the same hand-off on demand.
+- The native Tauri shell validates every destination as an HTTP(S) URL before opening.
 
 ---
 
@@ -206,8 +221,8 @@ The repository checks validate JavaScript syntax, Rust formatting, Rust dependen
 2. Play a video in the timeline, then scroll it out of view — it must pause.
 3. Minimize the window with a video playing — audio must stop; restore — it must resume on screen.
 4. Close (✕) — the app must stay in the tray; tray click must restore it.
-5. Test right-click saving for an image and a video; confirm output in `Downloads\X-Now`.
-6. Test external-link routing to the default browser.
+5. Test right-click saving for an image and a video; confirm output in `Downloads\X-Now` (video may hand off to Cobalt when X exposes only a streamed URL).
+6. Test external-link routing: click a `t.co` link in a post — it must open in the default browser; X's own links must stay in-app.
 
 ---
 
