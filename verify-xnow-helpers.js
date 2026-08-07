@@ -353,8 +353,9 @@ win2.setTimeout(() => {
     const toastD = win2.document.querySelector('.xnow-toast');
     assert(toastD && toastD.textContent.includes('Saved video'), 'video success toast shown');
 
-    // E: poster-ID scoping — even when the post page fetch FAILS, resources
-    // are pinned to the clicked video via its poster's media ID.
+    // E: poster-ID scoping + UI-asset exclusion + post-URL suffix stripping —
+    // even when the post page fetch FAILS, resources are pinned to the clicked
+    // video via its poster's media ID, and X's own UI animation is never saved.
     failAllDownloads = false;
     win2.fetch = async (url, opts) => {
       fetchCalls.push({ url, creds: opts && opts.credentials });
@@ -362,13 +363,14 @@ win2.setTimeout(() => {
       return { ok: true, headers: { get: () => 'image/jpeg' }, arrayBuffer: async () => new ArrayBuffer(16) };
     };
     win2.performance.getEntriesByType = () => [
+      { name: 'https://pbs.twimg.com/static/money/x-card-animation-v4.mp4', initiatorType: 'video' },
       { name: 'https://video.twimg.com/ext_tw_video/111111/pu/vid/avc1/720x720/FIRST.mp4', initiatorType: 'video' },
       { name: 'https://video.twimg.com/ext_tw_video/777888/pu/vid/avc1/720x720/TARGET.mp4?tag=14', initiatorType: 'video' }
     ];
     const articleE = win2.document.createElement('article');
     articleE.setAttribute('data-testid', 'tweet');
     const linkE = win2.document.createElement('a');
-    linkE.href = 'https://x.com/someone/status/9999999999';
+    linkE.href = 'https://x.com/someone/status/9999999999/photo/1';
     const videoE = win2.document.createElement('video');
     videoE.dataset.testRect = '300,300,0,0';
     videoE.src = 'blob:https://x.com/vid-e';
@@ -384,6 +386,35 @@ win2.setTimeout(() => {
     const dlE = invoked.filter(c => c.cmd === 'download_media' && /FIRST|TARGET/.test(c.url));
     assert(dlE.length >= 1 && dlE[0].url.includes('777888'),
       'poster-ID scoping: clicked video resource (777888) wins over first page video (111111) even when the post fetch fails');
+    assert(!invoked.some(c => c.cmd === 'download_media' && c.url.includes('x-card-animation')),
+      'X UI animation asset is never downloaded');
+    assert(fetchCalls.some(f => f.url === 'https://x.com/someone/status/9999999999'),
+      'post link /photo/1 suffix stripped before fetching the post page');
+
+    // E2: no poster available -> UI assets still excluded; the first REAL
+    // page video is the last-resort fallback.
+    invoked.length = 0;
+    win2.performance.getEntriesByType = () => [
+      { name: 'https://pbs.twimg.com/static/money/x-card-animation-v4.mp4', initiatorType: 'video' },
+      { name: 'https://video.twimg.com/ext_tw_video/111111/pu/vid/avc1/720x720/FIRST.mp4', initiatorType: 'video' }
+    ];
+    const videoE2 = win2.document.createElement('video');
+    videoE2.dataset.testRect = '300,300,0,0';
+    videoE2.src = 'blob:https://x.com/vid-e2';
+    const articleE2 = win2.document.createElement('article');
+    articleE2.setAttribute('data-testid', 'tweet');
+    const linkE2 = win2.document.createElement('a');
+    linkE2.href = 'https://x.com/someone/status/8888888888';
+    articleE2.append(linkE2, videoE2);
+    win2.document.body.appendChild(articleE2);
+    videoE2.dispatchEvent(new win2.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 90, clientY: 90 }));
+    const menuE2 = win2.document.querySelector('.xnow-media-menu');
+    const btnE2 = Array.from(menuE2.querySelectorAll('button')).find(b => b.textContent.includes('Save video'));
+    btnE2.click();
+    await new Promise(r => setTimeout(r, 200));
+    const dlE2 = invoked.filter(c => c.cmd === 'download_media');
+    assert(dlE2.length >= 1 && dlE2[0].url.includes('FIRST.mp4'),
+      'no poster: first REAL page video is the fallback (UI animation still excluded)');
 
     // G: clicks on media elements are never handed off (ad click-through guard)
     const opened = [];

@@ -318,6 +318,10 @@
       const url = new URL(href, window.location.href);
       if (url.origin !== window.location.origin) return "";
       if (!/^\/[^/]+\/status\/\d+/i.test(url.pathname)) return "";
+      // X suffixes post links (/status/123/photo/1, /video/1, /analytics) —
+      // those routes serve NO video content, so always resolve to the clean
+      // status page, which carries the post's media URLs.
+      url.pathname = url.pathname.replace(/(\/status\/\d+)\/.*$/i, "$1");
       return url.href;
     } catch (error) {
       return "";
@@ -355,6 +359,9 @@
       .filter(entry => /^https?:\/\//i.test(entry.name || ""))
       .filter(entry => {
         const url = entry.name || "";
+        // X UI assets (the login-card animation, icons, etc.) are loaded as
+        // videos/images but are NEVER post media — never save them.
+        if (/twimg\.com\/static\//i.test(url) || /abs\.twimg\.com\//i.test(url)) return false;
         const initiatorType = String(entry.initiatorType || "").toLowerCase();
         if (isVideo && initiatorType === "video") return true;
         // Note: modern X image URLs carry NO file extension — the format lives

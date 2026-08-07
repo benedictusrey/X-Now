@@ -1,3 +1,3 @@
-f1b5eef11ec521c2808dceed42438e387abece19758a8a84b12c5ef8de61738d *X-Now_v2.0.0.exe
-1f4c9d34f84ceb8dccb500f3b64b9d39f5910177c5d2e2aaa828cfc0c1e63a94 *installers/X-Now_2.0.0_x64-setup.exe
-469da38c43bd54b349120c116069399864bdafdc3adb0a49e2dadc352865a67e *installers/X-Now_2.0.0_x64_en-US.msi
+e7613cf6b6d56c8de49d69fa2e7f23cee828f1d605cd66f8e108cf7cd69773c9 *X-Now_v2.0.0.exe
+e0027c830dc73c16b677bfd8b1aa5119296831911ea02fe238b7d5cd9a0c53c4 *installers/X-Now_2.0.0_x64-setup.exe
+cecd4cc775f3c110598044d7b97ae9b20b97bba6fbed50dfa672766b37852c0a *installers/X-Now_2.0.0_x64_en-US.msi
