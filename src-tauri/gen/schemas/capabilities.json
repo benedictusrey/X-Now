@@ -1,0 +1,1 @@
+{"default":{"identifier":"default","description":"X-Now permissions for the X view","local":true,"windows":["x"],"permissions":["core:default","shell:allow-open"]}}

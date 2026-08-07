@@ -1,21 +1,24 @@
-# Rust/Cargo ignores
-target/
-Cargo.lock
+# Rust build output (kept out of source control)
+/src-tauri/target/
 
-# Node.js (if used in frontend later)
-node_modules/
-dist/
+# JavaScript dependencies and local tooling
+/node_modules/
+/.npm/
 
-# macOS / Windows OS files
-.DS_Store
+# IDE and editor files
+/.idea/
+/.vscode/
+*.code-workspace
+
+# Local environment and machine-specific files
+.env
+.env.*
+*.local
+*.log
+
+# Windows/macOS metadata
 Thumbs.db
+.DS_Store
 
-# X-Now specific binaries (we don't commit binaries to source control, upload them to Releases)
-X-Now_v1.0.0.exe
-installers/
-
-# User specifically requested to hide their personal right-click tray settings
-# WARNING: Ignoring this file will cause compilation errors for anyone cloning the repository 
-# (and for the GitHub Actions pipeline) because `lib.rs` depends on `mod tray;`. 
-# To fix this in the future, either provide a dummy `tray.rs` or remove the tray dependency in `lib.rs`.
-src-tauri/src/tray.rs
+# Installers are build products — binaries ship via GitHub Releases.
+/installers/
