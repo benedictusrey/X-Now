@@ -386,18 +386,22 @@
   }
 
   function scopedVideoResources(media) {
-    const all = mediaUrlsFromResources(media);
     const id = videoIdFromPoster(media);
-    if (!id) return all;
+    if (!id) return []; // never page-wide for videos — attribution impossible
+    const all = mediaUrlsFromResources(media);
     const scoped = all.filter(url => new RegExp(`/${id}/`).test(url));
-    return scoped.length ? scoped : all;
+    return scoped.length ? scoped : [];
   }
 
-  // Only URLs we can actually save: no HLS playlists (m3u8 / /pl/ paths).
+  // Only URLs we can actually save: no HLS playlists (m3u8 / /pl/ paths),
+  // and no X UI assets (login-card animation, icons) — they are loaded as
+  // videos/images but are NEVER post media.
   function isUsableMediaUrl(url) {
     return /^https?:\/\//i.test(url)
       && !/\.m3u8(?:[?#]|$)/i.test(url)
-      && !/\/pl\//i.test(url);
+      && !/\/pl\//i.test(url)
+      && !/twimg\.com\/static\//i.test(url)
+      && !/abs\.twimg\.com\//i.test(url);
   }
 
   // X serves every image in resolution variants of the same media ID
@@ -471,22 +475,23 @@
       candidates.push(url);
     };
     // Order: element/variant URLs, then POST-SCOPED candidates (the clicked
-    // post page's video/image URLs — never a neighbour), then VIDEO resources
-    // scoped to the clicked element via its poster's media ID, and only as a
-    // last resort the page-wide resource entries (the cause of 'video always
-    // downloaded the first post').
+    // post page's video/image URLs — never a neighbour), then for videos only
+    // the resources scoped to the clicked element via its poster's media ID.
+    // Page-wide resource entries are NEVER used for videos: they cannot be
+    // attributed to the clicked post, so they only ever produced the wrong
+    // video (e.g. X's always-ready login-card animation). A blob-only video
+    // with no resolvable URL falls through to the Cobalt hand-off instead.
     if (media instanceof HTMLImageElement) {
       resolutionVariants(directUrl).forEach(addCandidate);
       addCandidate(directUrl);
+      (await mediaUrlsFromPost(postUrlForMedia(media))).forEach(addCandidate);
+      mediaUrlsFromResources(media).forEach(addCandidate);
     } else {
       addCandidate(directUrl);
       resolutionVariants(directUrl).forEach(addCandidate);
+      (await mediaUrlsFromPost(postUrlForMedia(media))).forEach(addCandidate);
+      scopedVideoResources(media).forEach(addCandidate);
     }
-    (await mediaUrlsFromPost(postUrlForMedia(media))).forEach(addCandidate);
-    const pageResources = media instanceof HTMLVideoElement
-      ? scopedVideoResources(media)
-      : mediaUrlsFromResources(media);
-    pageResources.forEach(addCandidate);
     return candidates.filter(isUsableMediaUrl);
   }
 
@@ -616,6 +621,23 @@
     showToast(`Copied the post link and opened Cobalt. Choose Save and use ${downloadFolder}.`, "info");
   }
 
+  // Success-side diagnostics: mirror the chosen source + candidates into the
+  // page title so the Rust side logs them (XNOWLOG: branch). The app log then
+  // shows exactly what was resolved for every save.
+  function logSaveDiagnostics(kind, source, sources, postUrl) {
+    try {
+      const summary = {
+        kind,
+        source: String(source || "").slice(0, 200),
+        postUrl: String(postUrl || "").slice(0, 150),
+        candidates: (sources || []).slice(0, 5).map(u => String(u).slice(0, 150))
+      };
+      document.title = `XNOWLOG:${JSON.stringify(summary)}`.slice(0, 900);
+    } catch (error) {
+      console.warn("X-Now could not set the diagnostic title:", error);
+    }
+  }
+
   async function saveMedia(media) {
     const kind = media instanceof HTMLVideoElement ? "video" : "image";
     const postUrl = postUrlForMedia(media);
@@ -646,6 +668,7 @@
             mediaType: kind,
             referer
           });
+          logSaveDiagnostics(kind, source, sources, postUrl);
           showSavedToast(kind, savedPath);
           return;
         } catch (error) {
@@ -655,6 +678,7 @@
       }
       try {
         const savedPath = await downloadFromSignedInPage(source, kind);
+        logSaveDiagnostics(kind, source, sources, postUrl);
         showSavedToast(kind, savedPath);
         return;
       } catch (error) {

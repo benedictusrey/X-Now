@@ -362,6 +362,11 @@ pub fn launch_x_internal(app: &AppHandle, start_minimized: bool) -> Result<(), S
             eprintln!("[X-Now] Media-save failure reported by page: {}", reason);
             return;
         }
+        // Success-side diagnostics: XNOWLOG:<json> — candidates + chosen URL.
+        if let Some(summary) = page_title.strip_prefix("XNOWLOG:") {
+            eprintln!("[X-Now] Media-save diagnostics: {}", summary);
+            return;
+        }
         if let Some(user) = page_title.strip_prefix("XNOW:") {
             let user = user.trim().to_string();
             let is_pure_numeric = !user.is_empty() && user.chars().all(|c| c.is_ascii_digit());

@@ -318,7 +318,7 @@ win2.setTimeout(() => {
         return {
           ok: true,
           headers: { get: () => 'text/html' },
-          text: async () => '<html><head><meta property="og:video" content="https://video.twimg.com/ext_tw_video/987654/pu/vid/avc1/720x720/SECOND.mp4?format=mp4"/></head></html>'
+          text: async () => '<html><head><meta property="og:video" content="https://video.twimg.com/ext_tw_video/987654/pu/vid/avc1/720x720/SECOND.mp4?format=mp4"/><meta property="og:image" content="https://pbs.twimg.com/static/money/x-card-animation-v4.mp4"/></head></html>'
         };
       }
       return { ok: true, headers: { get: () => 'image/jpeg' }, arrayBuffer: async () => new ArrayBuffer(16) };
@@ -391,9 +391,13 @@ win2.setTimeout(() => {
     assert(fetchCalls.some(f => f.url === 'https://x.com/someone/status/9999999999'),
       'post link /photo/1 suffix stripped before fetching the post page');
 
-    // E2: no poster available -> UI assets still excluded; the first REAL
-    // page video is the last-resort fallback.
+    // E2: blob video with no poster and a failing post fetch -> NO page-wide
+    // fallback: the video is never mis-attributed; it goes to the Cobalt
+    // hand-off with the correct post link instead.
     invoked.length = 0;
+    const openedE2 = [];
+    const realOpenE2 = win2.open;
+    win2.open = (url) => { openedE2.push(url); return null; };
     win2.performance.getEntriesByType = () => [
       { name: 'https://pbs.twimg.com/static/money/x-card-animation-v4.mp4', initiatorType: 'video' },
       { name: 'https://video.twimg.com/ext_tw_video/111111/pu/vid/avc1/720x720/FIRST.mp4', initiatorType: 'video' }
@@ -413,8 +417,10 @@ win2.setTimeout(() => {
     btnE2.click();
     await new Promise(r => setTimeout(r, 200));
     const dlE2 = invoked.filter(c => c.cmd === 'download_media');
-    assert(dlE2.length >= 1 && dlE2[0].url.includes('FIRST.mp4'),
-      'no poster: first REAL page video is the fallback (UI animation still excluded)');
+    assert(dlE2.length === 0, 'no page-wide video is ever downloaded for an unresolvable blob video');
+    assert(openedE2.some(u => u.includes('cobalt.tools/?u=https%3A%2F%2Fx.com%2Fsomeone%2Fstatus%2F8888888888')),
+      'unresolvable video hands off to Cobalt with the CLICKED post link');
+    win2.open = realOpenE2;
 
     // G: clicks on media elements are never handed off (ad click-through guard)
     const opened = [];
