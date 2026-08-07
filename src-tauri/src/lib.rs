@@ -9,7 +9,7 @@ use std::{
     process::Command,
     sync::{
         atomic::{AtomicBool, AtomicU32, Ordering},
-        Arc,
+        Arc, Mutex,
     },
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -213,6 +213,13 @@ pub fn launch_x_internal(app: &AppHandle, start_minimized: bool) -> Result<(), S
     let browser_app = app.clone();
     let navigation_app = app.clone();
     let popup_app = app.clone();
+
+    // Signed-in handle cache for the titlebar (TikTok-Now pattern): X's SPA
+    // overwrites `document.title` on route changes / unread counts, so the
+    // native title is re-applied from this cache whenever the page title
+    // changes to anything else.
+    let username_cache: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+    let cache_for_title = username_cache.clone();
     let window = WebviewWindowBuilder::new(
         app,
         X_WINDOW_LABEL,
@@ -336,14 +343,58 @@ pub fn launch_x_internal(app: &AppHandle, start_minimized: bool) -> Result<(), S
         let _ = open_external_url(navigation_app.clone(), url.to_string());
         false
     })
-    // ── Titlebar Username: the tools script sets `document.title` to
-    // `XNOW:<handle>` once the signed-in profile link appears; surface it
-    // as "X-Now (@handle)" in the native titlebar.
-    .on_document_title_changed(|window, page_title| {
-        if let Some(handle) = page_title.strip_prefix("XNOW:") {
-            let handle = handle.trim();
-            if !handle.is_empty() {
-                let _ = window.set_title(&format!("X-Now (@{})", handle));
+    // ── Titlebar Username & OAuth Popup Sweeper ────────────────────────────
+    // The tools script sets `document.title` to `XNOW:<handle>` once the
+    // signed-in profile link appears — i.e. AFTER the OAuth token relay
+    // (postMessage) has already completed. Two jobs happen here, mirroring
+    // TikTok-Now's handler:
+    //  1. Surface the handle as "X-Now (@handle)" in the native titlebar.
+    //  2. Sweep: close ANY remaining `popup-*` OAuth windows. X's Google
+    //     sign-in (GIS) can leave the popup on accounts.google.com forever
+    //     (it never navigates back to x.com), so the popup's own self-close
+    //     never fires — this title signal is the guaranteed close moment.
+    .on_document_title_changed(move |window, page_title| {
+        let app = window.app_handle().clone();
+        if let Some(user) = page_title.strip_prefix("XNOW:") {
+            let user = user.trim().to_string();
+            let is_pure_numeric = !user.is_empty() && user.chars().all(|c| c.is_ascii_digit());
+
+            if !user.is_empty() && !is_pure_numeric {
+                *cache_for_title.lock().unwrap() = Some(user.clone());
+            }
+
+            // Immediately close ALL open OAuth popup windows upon login!
+            let popup_labels: Vec<String> = app
+                .webview_windows()
+                .keys()
+                .filter(|label| label.starts_with("popup-"))
+                .cloned()
+                .collect();
+            for label in popup_labels {
+                eprintln!("[X-Now] Login detected — closing popup window '{}'", label);
+                if let Some(popup) = app.get_webview_window(&label) {
+                    let _ = popup.close();
+                }
+            }
+
+            let _ = window.show();
+            let _ = window.set_focus();
+
+            let cached = cache_for_title.lock().unwrap().clone();
+            let new_title = if let Some(u) = cached {
+                format!("X-Now (@{})", u)
+            } else if !user.is_empty() && !is_pure_numeric {
+                format!("X-Now (@{})", user)
+            } else {
+                "X-Now".to_string()
+            };
+            let _ = window.set_title(&new_title);
+        } else {
+            // X's SPA overwrote the page title (route change, unread count…):
+            // re-apply the cached signed-in handle so the titlebar stays put.
+            let cached = cache_for_title.lock().unwrap().clone();
+            if let Some(u) = cached {
+                let _ = window.set_title(&format!("X-Now (@{})", u));
             }
         }
     })

@@ -25,6 +25,7 @@ All notable changes to **X-Now** are documented here. The format follows [Keep a
 - **Audio defaults**: feed videos follow X's muted-autoplay rule; lightbox/standalone videos play at 50% after your first interaction.
 
 ### 🔧 Fixed
+- **OAuth popup windows now close automatically after login** — the main window's title signal (`XNOW:<handle>`, set once the token relay completes) triggers a sweeper that closes every remaining `popup-*` sign-in window, exactly like TikTok-Now's handler. This covers X's Google sign-in (GIS), whose popup can linger on accounts.google.com because it never navigates back to x.com. The signed-in handle is also cached and re-applied to the titlebar when X's SPA overwrites the page title.
 - Double-pause race: both the resize fast-path and the watchdog firing on one minimize no longer wipe the resume intent (restore silently stayed paused before).
 - Mute-backup restore now always restores the original mute state of the exact element that was muted.
 - Fresh-clone compilation failure caused by the missing `tray.rs` (previously gitignored).
