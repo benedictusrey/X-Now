@@ -2,7 +2,23 @@
   if (window.__xnowMediaToolsInstalled) return;
   window.__xnowMediaToolsInstalled = true;
 
-  const invoke = window.__TAURI__?.core?.invoke;
+  // The native bridge is resolved LAZILY at call time — the Tauri runtime
+  // injects `window.__TAURI__` via its own document-start script, whose exact
+  // ordering vs. this init script is not guaranteed. A load-time capture can
+  // therefore be `undefined` even though the bridge is live (the visible
+  // symptom: media saves silently degrade and every path "fails").
+  function hasNativeBridge() {
+    return typeof window.__TAURI__?.core?.invoke === "function";
+  }
+
+  function nativeInvoke(command, args) {
+    const inv = window.__TAURI__?.core?.invoke;
+    if (typeof inv !== "function") {
+      return Promise.reject(new Error("X-Now native bridge is unavailable."));
+    }
+    return inv(command, args);
+  }
+
   const state = {
     menu: null,
     toast: null,
@@ -274,18 +290,43 @@
 
   function mediaUrlsFromResources(media) {
     const isVideo = media instanceof HTMLVideoElement;
-    const resources = performance.getEntriesByType("resource")
+    const entries = (typeof window.performance?.getEntriesByType === "function"
+      ? window.performance.getEntriesByType("resource")
+      : []) || [];
+    const resources = entries
       .filter(entry => /^https?:\/\//i.test(entry.name || ""))
       .filter(entry => {
         const url = entry.name || "";
         const initiatorType = String(entry.initiatorType || "").toLowerCase();
         if (isVideo && initiatorType === "video") return true;
+        // Note: modern X image URLs carry NO file extension — the format lives
+        // in the query (?format=jpg&name=240x240) — so match by twimg host.
         return isVideo
-          ? /\/(?:ext_tw_video|video)\//i.test(url) || /\.mp4(?:[?#]|$)/i.test(url)
-          : /\/(?:media|ext_tw_video|video)\//i.test(url) && /\.(?:jpe?g|png|webp|avif)(?:[?#]|$)/i.test(url);
+          ? /video\.twimg\.com\//i.test(url) || /\.mp4(?:[?#]|$)/i.test(url)
+          : /(?:pbs|video)\.twimg\.com\//i.test(url);
       })
       .map(entry => entry.name);
     return Array.from(new Set(resources.reverse()));
+  }
+
+  // X serves every image in resolution variants of the same media ID
+  // (?name=small|medium|large|orig). The feed element usually exposes a small
+  // thumbnail — offer the full-resolution variants as candidates so saving
+  // gets the ORIGINAL, not the thumbnail.
+  function resolutionVariants(url) {
+    try {
+      const parsed = new URL(url);
+      if (!/(?:pbs|video)\.twimg\.com\//i.test(parsed.hostname + parsed.pathname)) return [];
+      const base = `${parsed.origin}${parsed.pathname}`;
+      const format = parsed.searchParams.get("format") || "jpg";
+      const variants = [
+        `${base}?format=${format}&name=orig`,
+        `${base}?format=${format}&name=large`
+      ];
+      return variants.filter(variant => variant !== url);
+    } catch (error) {
+      return [];
+    }
   }
 
   // X embeds JSON-escaped and HTML-escaped URLs in its pages — unescape them
@@ -337,25 +378,26 @@
       if (!url || candidates.includes(url)) return;
       candidates.push(url);
     };
-    if (media instanceof HTMLVideoElement) {
-      // X streams from video.twimg.com; blob: URLs can't be fetched by curl,
-      // so prefer the resolved HTTP(S) resource URLs when the element only
-      // exposes a blob.
-      mediaUrlsFromResources(media).forEach(addCandidate);
+    // Order: for IMAGES prefer the full-resolution variants first (orig/large —
+    // the element usually only exposes a small thumbnail), with the element's
+    // own URL as the freshest-signature fallback; for VIDEOS the live element
+    // URL first (blob: URLs are filtered at the end), then variants/resources.
+    if (media instanceof HTMLImageElement) {
+      resolutionVariants(directUrl).forEach(addCandidate);
       addCandidate(directUrl);
-      (await mediaUrlsFromPost(postUrlForMedia(media))).forEach(addCandidate);
     } else {
       addCandidate(directUrl);
-      mediaUrlsFromResources(media).forEach(addCandidate);
-      (await mediaUrlsFromPost(postUrlForMedia(media))).forEach(addCandidate);
+      resolutionVariants(directUrl).forEach(addCandidate);
     }
+    mediaUrlsFromResources(media).forEach(addCandidate);
+    (await mediaUrlsFromPost(postUrlForMedia(media))).forEach(addCandidate);
     return candidates.filter(url => /^https?:\/\//i.test(url));
   }
 
   function openDefaultBrowser(url) {
     if (!/^https?:\/\//i.test(url || "")) return;
-    if (typeof invoke === "function") {
-      invoke("open_external_url", { url }).catch(() => {
+    if (hasNativeBridge()) {
+      nativeInvoke("open_external_url", { url }).catch(() => {
         window.open(url, "_blank", "noopener,noreferrer");
       });
       return;
@@ -381,14 +423,18 @@
   window.showToast = showToast;
 
   async function saveBytesInApp(buffer, kind) {
-    if (typeof invoke !== "function") throw new Error("X-Now native bridge is unavailable.");
+    if (!hasNativeBridge()) throw new Error("X-Now native bridge is unavailable.");
     const bytes = Array.from(new Uint8Array(buffer));
-    return invoke("save_media_bytes", { data: bytes, mediaType: kind });
+    return nativeInvoke("save_media_bytes", { data: bytes, mediaType: kind });
   }
 
   async function downloadFromSignedInPage(url, kind) {
+    // Cross-origin media fetch: twimg serves `access-control-allow-origin: *`,
+    // which the browser REJECTS when credentials are included — omit them so
+    // the CORS check passes for public media (session-protected media falls
+    // back to the native curl path with the post referer).
     const response = await fetch(url, {
-      credentials: "include",
+      credentials: "omit",
       cache: "no-store"
     });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -417,9 +463,9 @@
     }
 
     let downloadFolder = "Downloads\\X-Now";
-    if (typeof invoke === "function") {
+    if (hasNativeBridge()) {
       try {
-        downloadFolder = await invoke("prepare_download_folder");
+        downloadFolder = await nativeInvoke("prepare_download_folder");
       } catch (error) {
         console.warn("X-Now could not prepare the download folder:", error);
       }
@@ -447,10 +493,11 @@
       return;
     }
 
+    let lastError = "";
     for (const source of sources) {
-      if (typeof invoke === "function") {
+      if (hasNativeBridge()) {
         try {
-          const savedPath = await invoke("download_media", {
+          const savedPath = await nativeInvoke("download_media", {
             url: source,
             mediaType: kind,
             referer
@@ -458,6 +505,7 @@
           showToast(`Saved ${kind} to ${savedPath}`);
           return;
         } catch (error) {
+          lastError = String(error?.message || error);
           console.warn("X-Now native URL media download failed; trying the next source:", error);
         }
       }
@@ -466,6 +514,7 @@
         showToast(`Saved ${kind} to ${savedPath}`);
         return;
       } catch (error) {
+        lastError = String(error?.message || error);
         console.warn("X-Now signed-in media save failed; trying the next source:", error);
       }
     }
@@ -475,7 +524,8 @@
       await openCobaltForVideo(media);
       return;
     }
-    showToast("X blocked this image download. Open the post in your browser and try again.");
+    showToast(`X blocked this image download (${lastError || "all methods failed"}). ` +
+      "Open the post in your browser and try again.");
   }
 
   async function openMediaInBrowser(media) {

@@ -236,8 +236,77 @@ win2.setTimeout(() => {
   assert(ctrlPrevented === false, 'modifier-click on external link not intercepted (Rust router handles it)');
   assert(opened.filter(u => u === 'https://example.com/article').length === 1, 'modifier-click did not double-open');
 
-  win2.setTimeout(() => {
+  win2.setTimeout(async () => {
     assert(doc2.title === 'XNOW:benedictusrey', 'signed-in handle sets XNOW:<handle> title');
+
+    // ── Media-save pipeline: lazy bridge, CORS-safe fetch, variants, filters ──
+    // The tools script loaded WITHOUT __TAURI__ — the bridge is installed NOW,
+    // proving lazy resolution (the fix for saves silently degrading when the
+    // bridge is captured too early at load time).
+    const invoked = [];
+    const fetchCalls = [];
+    let failAllDownloads = false;
+    win2.__TAURI__ = { core: { invoke: async (cmd, args) => {
+      invoked.push({ cmd, ...args });
+      if (cmd === 'download_media') {
+        if (failAllDownloads || /name=small/.test(args.url)) throw new Error('HTTP 403');
+        return 'C:\\Users\\x\\Downloads\\X-Now\\' + (args.mediaType === 'video' ? 'v.mp4' : 'img.jpg');
+      }
+      if (cmd === 'save_media_bytes') return 'C:\\Users\\x\\Downloads\\X-Now\\fetched.jpg';
+      if (cmd === 'prepare_download_folder') return 'C:\\Users\\x\\Downloads\\X-Now';
+      throw new Error('unexpected ' + cmd);
+    } } };
+    win2.fetch = async (url, opts) => {
+      fetchCalls.push({ url, creds: opts && opts.credentials });
+      return { ok: true, headers: { get: () => 'image/jpeg' }, arrayBuffer: async () => new ArrayBuffer(16) };
+    };
+    win2.navigator.clipboard = { writeText: async () => {} };
+    win2.performance.getEntriesByType = () => [];
+
+    function postWithImg(win, src) {
+      const article = win.document.createElement('article');
+      article.setAttribute('data-testid', 'tweet');
+      const link = win.document.createElement('a');
+      link.href = 'https://x.com/someone/status/1234567890123';
+      const img = win.document.createElement('img');
+      img.dataset.testRect = '300,300,0,0';
+      if (src) img.src = src;
+      link.appendChild(img);
+      article.appendChild(link);
+      win.document.body.appendChild(article);
+      return img;
+    }
+    async function saveImageViaMenu(win, img) {
+      img.dispatchEvent(new win.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 40, clientY: 40 }));
+      const menu = win.document.querySelector('.xnow-media-menu');
+      const btn = Array.from(menu.querySelectorAll('button')).find(b => b.textContent.includes('Save image'));
+      btn.click();
+      await new Promise(r => setTimeout(r, 150));
+    }
+
+    // A: lazy bridge + full-resolution FIRST (orig before the small thumbnail)
+    const imgA = postWithImg(win2, 'https://pbs.twimg.com/media/AAA?format=jpg&name=small');
+    await saveImageViaMenu(win2, imgA);
+    const dlA = invoked.filter(c => c.cmd === 'download_media');
+    assert(dlA.length >= 1, 'download_media attempted');
+    assert(dlA[0] && dlA[0].url.includes('name=orig'), 'orig resolution variant tried FIRST (full quality)');
+    const toastA = win2.document.querySelector('.xnow-toast');
+    assert(toastA && toastA.textContent.includes('Saved image'), 'image saved at full resolution (toast)');
+
+    // B: extensionless twimg resource URL used when the element has no src
+    win2.performance.getEntriesByType = () => [{ name: 'https://pbs.twimg.com/media/BBB?format=jpg&name=240x240', initiatorType: 'img' }];
+    const imgB = postWithImg(win2, null);
+    await saveImageViaMenu(win2, imgB);
+    const dlB = invoked.filter(c => c.cmd === 'download_media').pop();
+    assert(dlB && dlB.url === 'https://pbs.twimg.com/media/BBB?format=jpg&name=240x240', 'extensionless twimg URL resolved from resources');
+
+    // C: all native downloads fail -> fetch fallback with credentials OMIT
+    failAllDownloads = true;
+    const imgC = postWithImg(win2, 'https://pbs.twimg.com/media/CCC?format=jpg&name=medium');
+    await saveImageViaMenu(win2, imgC);
+    const mediaFetch = fetchCalls.find(f => /twimg\.com/.test(f.url));
+    assert(mediaFetch && mediaFetch.creds === 'omit', 'cross-origin media fetch uses credentials omit (CORS-safe)');
+    assert(invoked.some(c => c.cmd === 'save_media_bytes'), 'fallback saved bytes via save_media_bytes');
 
     // ── Cleanup sanity: single style element across the whole session ──────────
     assert(doc.querySelectorAll('style').length === 1, 'no style duplication after route polls');

@@ -74,6 +74,7 @@ const REPORT_JS: &str = r#"(function(){
         hasResume: typeof window.__resumeIfNeeded,
         hasReport: typeof window.__xnowPauseReport,
         hasToast: typeof window.showToast,
+        hasBridge: typeof (window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke),
         media: document.querySelectorAll('video, audio').length,
         mediaMuted: (function(){ var v = _pickVideo(); return v ? v.muted : null; })(),
         mediaVolume: (function(){ var v = _pickVideo(); return v ? v.volume : null; })(),
@@ -429,13 +430,20 @@ fn open_external_url(app: AppHandle, url: String) -> Result<(), String> {
         .map_err(|error| error.to_string())
 }
 
+/// Downloads base directory: the OS download folder, with graceful fallbacks
+/// (documents, then home) so media saving never fails on exotic setups.
+fn download_base_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    let paths = app.path();
+    paths
+        .download_dir()
+        .or_else(|_| paths.document_dir())
+        .or_else(|_| paths.home_dir())
+        .map_err(|error| error.to_string())
+}
+
 #[tauri::command]
 fn prepare_download_folder(app: AppHandle) -> Result<String, String> {
-    let download_dir = app
-        .path()
-        .download_dir()
-        .map_err(|error| error.to_string())?
-        .join("X-Now");
+    let download_dir = download_base_dir(&app)?.join("X-Now");
     fs::create_dir_all(&download_dir).map_err(|error| error.to_string())?;
     Ok(download_dir.to_string_lossy().into_owned())
 }
@@ -446,11 +454,7 @@ fn media_target_path(app: &AppHandle, media_type: &str) -> Result<PathBuf, Strin
     } else {
         "jpg"
     };
-    let download_dir = app
-        .path()
-        .download_dir()
-        .map_err(|error| error.to_string())?
-        .join("X-Now");
+    let download_dir = download_base_dir(app)?.join("X-Now");
     fs::create_dir_all(&download_dir).map_err(|error| error.to_string())?;
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)

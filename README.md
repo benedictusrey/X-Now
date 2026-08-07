@@ -37,6 +37,18 @@
 
 > X-Now is not affiliated with, sponsored by, or maintained by X Corp. or Twitter, Inc. Use X and any downloader service according to their terms, local law, and the rights attached to the media.
 
+### ✨ At a glance
+
+| | |
+|---|---|
+| 🪟 **Close-to-tray** | The ✕ button hides the app to the tray — media pauses instantly, one click brings it back |
+| 🔇 **Guaranteed pause on minimize** | Page pause + OS-level audio-session mute + a Rust watchdog: no background audio, ever |
+| 🖱️ **Tray command center** | Feed shortcuts, zoom, always-on-top, memory compaction, launch-on-startup |
+| 💾 **One-click media saving** | Right-click images (full resolution) and videos — straight to `Downloads\X-Now` |
+| 🔗 **Links go where they belong** | One click on any outside link → your default browser opens it |
+| 🔐 **Seamless in-app login** | Google & Apple sign-in popups handled inside the app, auto-closed after login |
+| ⚡ **Feather-light** | A single ≈7 MB binary — no Electron, no Node, no bloat |
+
 ### 🌟 Why Choose X-Now?
 
 #### 1. Unrivaled Performance & Efficiency
@@ -62,7 +74,7 @@ Why open a browser tab when you can command everything from your taskbar? X-Now 
 
 ---
 
-## ⚔️ X-Now v2.0.0 vs X Web
+## ⚔️ X-Now vs X Native Web
 
 Same X, same account, same feed — but the *wrapper around it* is where the desktop magic lives. X-Now keeps the official X experience and adds the OS integration a browser tab can't offer:
 
@@ -72,7 +84,7 @@ Same X, same account, same feed — but the *wrapper around it* is where the des
 | **Close button** | Closes to the tray — app keeps running, media pauses instantly | Closes the tab and the whole browser stays heavy |
 | **Minimize** | Video audio stops the moment the window hides (page + OS audio-session mute, double-guaranteed) | Tab keeps playing audio in the background |
 | **Launch on startup** | Optional — starts hidden to the tray, ready when you are | Must re-open the browser and the tab |
-| **Saving images** | Right-click image → saved to `Downloads\X-Now` in one action | Browser right-click menu — often blocked by the site |
+| **Saving images** | Right-click image → saved at **full resolution** to `Downloads\X-Now` in one action | Browser right-click menu — often blocked by the site |
 | **Saving videos** | Right-click video → direct MP4 save when X exposes the URL, otherwise the post link is copied and [Cobalt](https://cobalt.tools/) opens with `Downloads\X-Now` pre-created | Manual copy/paste between tabs |
 | **External links** | One click on any outside link — your default browser opens it as the system handler | New tabs pile up |
 | **Login** | Google & Apple sign-in popups open inside the app — the OAuth token relay stays intact, and the popup closes itself after login | Popup-blockers and tab juggling |
@@ -140,13 +152,15 @@ X-Now never adds duplicate player chrome: play, mute, fullscreen, captions and q
 
 ### Images
 
-Right-click any image in your feed and choose **Save image**. X-Now resolves the best direct URL (the element's source, the loaded CDN resources, or the post page's own `og:image`), creates the folder below when needed, and writes the image there:
+Right-click any image in your feed and choose **Save image**. X-Now resolves the best direct URL and saves the **full-resolution original** (the `name=orig` variant) to the folder below, creating it when needed:
 
 ```text
 %USERPROFILE%\Downloads\X-Now
 ```
 
 *(On macOS and Linux, the equivalent user Downloads folder is used.)*
+
+Source resolution order: full-resolution variants → the element's own URL → loaded CDN resources → the post page's `og:image` — with both a native (curl) downloader and a CORS-safe in-page fetch as delivery paths.
 
 ### Videos
 
