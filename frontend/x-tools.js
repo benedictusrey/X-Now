@@ -482,6 +482,7 @@
     const referer = postUrl || "https://x.com/";
 
     const sources = await mediaUrlCandidates(media);
+    console.warn("[X-Now] saveMedia candidates:", sources);
     if (!sources.length) {
       // No direct URL at all (e.g. blob-only MSE streams) — the IG-Now method
       // still gets the video: copy the post link + open Cobalt.
@@ -524,7 +525,15 @@
       await openCobaltForVideo(media);
       return;
     }
-    showToast(`X blocked this image download (${lastError || "all methods failed"}). ` +
+    const reason = lastError || "all methods failed";
+    // Diagnostic channel: mirror the reason into the page title so the Rust
+    // side logs it (XNOWERR: branch) — plus the user-visible toast.
+    try {
+      document.title = `XNOWERR:image:${String(reason).slice(0, 300)}`;
+    } catch (error) {
+      console.warn("X-Now could not set the diagnostic title:", error);
+    }
+    showToast(`X blocked this image download (${reason}). ` +
       "Open the post in your browser and try again.");
   }
 

@@ -356,6 +356,12 @@ pub fn launch_x_internal(app: &AppHandle, start_minimized: bool) -> Result<(), S
     //     never fires — this title signal is the guaranteed close moment.
     .on_document_title_changed(move |window, page_title| {
         let app = window.app_handle().clone();
+        // Diagnostic channel: the page tools report media-save failures via a
+        // XNOWERR: title — surfaced to the app log without touching the title.
+        if let Some(reason) = page_title.strip_prefix("XNOWERR:") {
+            eprintln!("[X-Now] Media-save failure reported by page: {}", reason);
+            return;
+        }
         if let Some(user) = page_title.strip_prefix("XNOW:") {
             let user = user.trim().to_string();
             let is_pure_numeric = !user.is_empty() && user.chars().all(|c| c.is_ascii_digit());
@@ -499,7 +505,7 @@ async fn download_media(
     tokio::task::spawn_blocking(move || -> Result<String, String> {
         // Windows ships `curl.exe`; macOS/Linux use the system `curl`.
         let curl = if cfg!(windows) { "curl.exe" } else { "curl" };
-        let status = Command::new(curl)
+        let output = Command::new(curl)
             .args([
                 "--fail",
                 "--location",
@@ -519,12 +525,24 @@ async fn download_media(
             .args(["--header", "Accept: */*", "--output"])
             .arg(&target_path)
             .arg(&url)
-            .status()
+            .output()
             .map_err(|error| format!("Unable to start {curl}: {error}"))?;
 
-        if !status.success() {
+        if !output.status.success() {
             let _ = fs::remove_file(&target_path);
-            return Err(format!("{curl} exited with status {status}"));
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            eprintln!(
+                "[X-Now] download_media failed: url={} target={} status={} stderr={}",
+                url,
+                target_path.display(),
+                output.status,
+                stderr.trim()
+            );
+            return Err(format!(
+                "{curl} exited with status {}: {}",
+                output.status,
+                stderr.trim()
+            ));
         }
 
         let metadata = fs::metadata(&target_path).map_err(|error| error.to_string())?;
@@ -539,6 +557,11 @@ async fn download_media(
             }
         }
 
+        eprintln!(
+            "[X-Now] download_media OK: {} bytes -> {}",
+            metadata.len(),
+            target_path.display()
+        );
         Ok(target_path.to_string_lossy().into_owned())
     })
     .await
