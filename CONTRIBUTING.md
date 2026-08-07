@@ -81,10 +81,12 @@ cargo tauri build --ci
 ### Verification checklist (before submitting)
 1. `node --check frontend/x-tools.js` passes.
 2. `cargo build --release` compiles with no new warnings.
-3. The pause-on-minimize helpers still pass their jsdom regression harness (see below).
+3. The pause-on-minimize + media-saving helpers still pass their jsdom regression harness (see below).
 4. Manual smoke test on your platform: login → play a video → minimize → audio stops → restore → audio resumes → close (✕) → app stays in tray → tray click restores.
-5. Click an external link (e.g. a `t.co` link in a post) → it must open in the OS default browser; X's own links must stay in-app.
-6. Right-click an image → save lands in `Downloads\X-Now`; right-click a video → direct MP4 save, or the Cobalt hand-off with the folder pre-created.
+5. Click an external link (e.g. a `t.co` link in a post) → it must open in the OS default browser; X's own links must stay in-app; clicking a video player itself must never open the browser.
+6. Right-click an image → the **full-resolution original** lands in `Downloads\X-Now` with a "Saved ✓" toast and **no console window flash**.
+7. Right-click **two different video posts** → each must save **its own** video (different file sizes/names — never the same file twice, never X's UI animation). If a stream is unresolvable, Cobalt must open with the **clicked post's** link.
+8. Check the app log after a save: `[X-Now] download_media OK: … <- <url>` and the `XNOWLOG:` diagnostics line show the post URL + candidates.
 
 ### jsdom regression harness
 The injected script is tested headlessly with jsdom (the same harness pattern used across the *-Now apps):
@@ -92,7 +94,8 @@ The injected script is tested headlessly with jsdom (the same harness pattern us
 ```bash
 mkdir -p /tmp/xnow-verify && cd /tmp/xnow-verify
 npm init -y && npm i jsdom
-# verify-xnow-helpers.js: 30+ assertions on pause/resume/mute/on-screen rules
+# verify-xnow-helpers.js: 60+ assertions on pause/resume/mute/on-screen rules
+# and the full media-saving pipeline (candidate order, CORS fetch, toasts)
 node /tmp/xnow-verify/verify-xnow-helpers.js
 ```
 

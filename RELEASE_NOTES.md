@@ -24,9 +24,9 @@
 ### 💾 One-click media saving
 - **Silent downloads**: `curl.exe` now runs with `CREATE_NO_WINDOW` — no CMD window flashes during a download.
 - **Download toast (bottom-right)**: a dark, rounded notification card slides in at the bottom-right corner — a spinner while the download runs, then **"Saved image/video ✓"** with the `Downloads\X-Now` folder, or a red ✕ card with the reason if it fails. Auto-dismisses after ~4.5 s.
-- **Videos download the RIGHT post now**: candidate resolution is post-scoped first (the clicked post's `og:video`), so a streamed `blob:` video no longer grabs the first mp4 the page loaded. Videos save directly whenever X exposes a direct URL — no Cobalt round-trip, much faster — and Cobalt remains the fallback for streams X keeps fully hidden.
+- **Videos always download the RIGHT post**: a video resolves only from the clicked post — its own element URL, the post page's video URLs (`og:video` / `twitter:player:stream` / embedded JSON), or resources pinned to it via the poster's media ID. Page-wide shortcuts are never taken (they once produced X's own UI animation instead of the post), post links like `/status/123/photo/1` are normalized to the clean status page, and a stream X keeps fully hidden hands off to **Cobalt with the correct post link**. Direct MP4 saves skip the Cobalt round-trip entirely — much faster.
 - **Fixed the real blocker**: Tauri's ACL now explicitly grants the four native commands to the x.com page (`remote` capability + declared commands in build.rs). Previously every native call was rejected with "Command … not allowed by ACL" — image saving fell through every layer, and videos always had to take the Cobalt detour. Image saving now works end-to-end, and videos download **directly** whenever X exposes a direct MP4 URL — no Cobalt round-trip, much faster.
-- Right-click any **image** and save it straight to `Downloads\X-Now` — X-Now resolves the **full-resolution original** (element URL → `name=orig`/`large` variants → loaded CDN resources → the post page's `og:image`) and delivers it through a native curl downloader or a CORS-safe in-page fetch.
+- Right-click any **image** and save it straight to `Downloads\X-Now` — X-Now resolves the **full-resolution original** (full-resolution variants → the element's own URL → the post page's `og:image` → loaded CDN resources) and delivers it through a native curl downloader or a CORS-safe in-page fetch.
 - Right-click any **video** — X-Now tries a direct MP4 save from X's own CDN first; when X only exposes a streamed `blob:` URL, it falls back to the proven IG-Now hand-off: post link copied, `Downloads\X-Now` pre-created, and [Cobalt](https://cobalt.tools/) opened with the link pre-filled. The same hand-off is one tray click away (**Open Cobalt video downloader**).
 
 ### 🔗 Links go where they belong
@@ -56,7 +56,7 @@
 | Tray menu | No Show/Hide, no autostart | **Show / Hide X-Now** + **🚀 Launch on Startup** |
 | Startup | Always opened a window | Optional **hidden-to-tray** launch via autostart |
 | About | Separate small window | **In-page overlay** with X branding |
-| Media | Browser right-click only | **Right-click save** to `Downloads\X-Now` — images direct, videos direct MP4 or Cobalt hand-off |
+| Media | Browser right-click only | **Right-click save** to `Downloads\X-Now` — images at full resolution, videos always from the clicked post (direct MP4 or Cobalt hand-off), bottom-right progress toasts |
 | Audio reliability | Relied on page behavior | **OS-level session mute** + stale-mute cleanup + on-screen resume rules |
 | Source layout | `src-tauri` not in the repo (builds broke on fresh clones) | **Full Rust backend committed** — anyone can build; CI is green |
 | Docs | README only | README + Release Notes + Changelog + Security + Contributing, with per-platform guides |
@@ -86,7 +86,7 @@
 
 ## ⚔️ Why Desktop, Not a Tab?
 
-See the full [X-Now v2.0.0 vs X Web comparison](README.md#-xnow-v200-vs-x-web) — tray presence, guaranteed silence on minimize, one-click media saving, always-on-top, a titlebar that knows your handle, and a ~7 MB binary instead of a full browser.
+See the full [X-Now vs X Native Web comparison](README.md#-xnow-vs-x-native-web) — tray presence, guaranteed silence on minimize, one-click media saving, always-on-top, a titlebar that knows your handle, and a ~7 MB binary instead of a full browser.
 
 ---
 

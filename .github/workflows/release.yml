@@ -129,7 +129,7 @@ jobs:
             ### ✨ Highlights
 
             - 🖥️ Native window + system tray with feed shortcuts (Home, Explore, Notifications, Messages, Bookmarks, Profile)
-            - 💾 Right-click images/videos → saved to `Downloads\X-Now`; right-click links → opened in your default browser
+            - 💾 Right-click images/videos → saved to `Downloads\X-Now` (full-resolution images; videos always from the clicked post, with bottom-right progress toasts); right-click links → opened in your default browser
             - 📌 Always-on-top · 🔍 Zoom controls · 🧹 memory compaction · 🔎 dev tools · URL copy/open
             - 🔐 Signed-in session stays local — no analytics, no account database
 

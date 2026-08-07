@@ -84,8 +84,8 @@ Same X, same account, same feed — but the *wrapper around it* is where the des
 | **Close button** | Closes to the tray — app keeps running, media pauses instantly | Closes the tab and the whole browser stays heavy |
 | **Minimize** | Video audio stops the moment the window hides (page + OS audio-session mute, double-guaranteed) | Tab keeps playing audio in the background |
 | **Launch on startup** | Optional — starts hidden to the tray, ready when you are | Must re-open the browser and the tab |
-| **Saving images** | Right-click image → saved at **full resolution** to `Downloads\X-Now` in one action | Browser right-click menu — often blocked by the site |
-| **Saving videos** | Right-click video → direct MP4 save when X exposes the URL, otherwise the post link is copied and [Cobalt](https://cobalt.tools/) opens with `Downloads\X-Now` pre-created | Manual copy/paste between tabs |
+| **Saving images** | Right-click image → saved at **full resolution** to `Downloads\X-Now` in one action, with a bottom-right "Saved ✓" toast | Browser right-click menu — often blocked by the site |
+| **Saving videos** | Right-click video → **the clicked post's video** downloads directly as MP4 when X exposes it; otherwise the post link is copied and [Cobalt](https://cobalt.tools/) opens with `Downloads\X-Now` pre-created — never a wrong video | Manual copy/paste between tabs |
 | **External links** | One click on any outside link — your default browser opens it as the system handler | New tabs pile up |
 | **Login** | Google & Apple sign-in popups open inside the app — the OAuth token relay stays intact, and the popup closes itself after login | Popup-blockers and tab juggling |
 | **Titlebar** | Shows `X-Now (@yourhandle)` once signed in | Browser tab title only |
@@ -150,6 +150,8 @@ X-Now never adds duplicate player chrome: play, mute, fullscreen, captions and q
 
 ## Saving & Opening Media
 
+Right-click any image or video and choose the save action. A notification card slides in at the **bottom-right corner**: a spinner while the download runs, then **"Saved ✓"** with the folder — or a red card with the reason if it fails. Downloads are completely silent (no console window, ever).
+
 ### Images
 
 Right-click any image in your feed and choose **Save image**. X-Now resolves the best direct URL and saves the **full-resolution original** (the `name=orig` variant) to the folder below, creating it when needed:
@@ -160,16 +162,14 @@ Right-click any image in your feed and choose **Save image**. X-Now resolves the
 
 *(On macOS and Linux, the equivalent user Downloads folder is used.)*
 
-Source resolution order: full-resolution variants → the element's own URL → loaded CDN resources → the post page's `og:image` — with both a native (curl) downloader and a CORS-safe in-page fetch as delivery paths.
+Source resolution order: full-resolution variants → the element's own URL → the post page's `og:image` → loaded CDN resources — with both a native (curl) downloader and a CORS-safe in-page fetch as delivery paths.
 
 ### Videos
 
-Right-click any video and choose **Save video**. X-Now first tries a direct MP4 save from X's own CDN (`video.twimg.com`) — exactly the URL the page exposed. When X only exposes a streamed `blob:` URL (no direct MP4), X-Now falls back to the IG-Now hand-off method:
+Right-click any video and choose **Save video**. X-Now always targets the **clicked post's video**:
 
-1. Copies the exact post link to your clipboard.
-2. Pre-creates `Downloads\X-Now`.
-3. Opens [Cobalt](https://cobalt.tools/?u=<post-link>) in your default browser with the link pre-filled.
-4. Choose the format there and save into the prepared folder.
+1. **Direct MP4 save** — the video's own URL, or the post page's video URLs (`og:video` / `twitter:player:stream` / embedded JSON), or resources pinned to the video via its poster's media ID. Saved straight to `Downloads\X-Now`, no Cobalt round-trip.
+2. **Cobalt hand-off** (only when X hides the direct URL behind a streamed `blob:`) — the post link is copied, `Downloads\X-Now` is pre-created, and [Cobalt](https://cobalt.tools/?u=<post-link>) opens in your default browser with the link pre-filled; choose the format there and save into the prepared folder.
 
 The same hand-off is one tray click away: **Open Cobalt video downloader**.
 

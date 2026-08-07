@@ -29,6 +29,7 @@ X-Now is a Tauri v2 app whose only page is the official x.com website. Tauri's a
 
 Media saving is opt-in and local. Downloads go only to `Downloads\X-Now` (or your OS's equivalent download folder). Nothing is uploaded anywhere.
 - **Media is fetched as the page exposes it.** X-Now downloads X's CDN URLs (`pbs.twimg.com`, `video.twimg.com`) with a standard browser user-agent and the post URL as referer; it does not bypass X access controls.
+- **Video resolution is post-scoped only.** A video is resolved exclusively from the clicked post (its own URL, its post page, or resources pinned to it via the poster's media ID) — page-wide shortcuts are never taken, X's own UI assets (`pbs.twimg.com/static/*`) are excluded from every candidate path, and HLS playlists are never saved as files.
 - **Video hand-off is a browser redirect.** When X exposes only a streamed `blob:` URL, the video path opens the external [Cobalt](https://cobalt.tools/) service in your default browser; X-Now does not store the copied post link.
 
 ## 🧪 Security-Conscious Development
