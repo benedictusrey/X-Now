@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Release tag (e.g. v2.0.0)'
+        description: 'Release tag (e.g. v2.1.0)'
         required: true
-        default: 'v2.0.0'
+        default: 'v2.1.0'
 
 jobs:
   release:
@@ -97,14 +97,12 @@ jobs:
 
             X, elevated. A lightweight **Rust + Tauri v2** desktop client — the official x.com, now with real OS superpowers. ~7 MB binary, no Electron.
 
-            ### ✨ What's new in v2.0.0
+            ### ✨ What's new in v2.1.0
 
-            - 🪟 **Close-to-tray** — the ✕ button hides the window to the tray and pauses media instantly; one tray click brings it back.
-            - 🔇 **Guaranteed pause on minimize** — page pause + Windows OS-level audio-session mute + a Rust watchdog: video audio never plays in the background. Restore resumes at 50% volume, following X's own on-screen autoplay rules.
-            - 🖱️ **Smart Show / Hide tray toggle** — restores whenever minimized/hidden/unfocused, hides (pausing first) only when visible and focused.
-            - 🚀 **Launch on Startup** — starts hidden to the tray, never popping a window over your work.
-            - 💾 **One-click media saving** — right-click images/videos in your feed and save them directly to `Downloads\X-Now`.
-            - 🎨 **Seamless About overlay** — X-branded in-app card, version and author link, no window hop.
+            - ✍️ **Composer & sidebar typography** — the "What's happening?" composer now types at **15px** and the sidebar menu (Home, Explore, …) reads at **17px** — including the "More" button and its flyout (page-level CSS overrides, no X settings touched).
+            - 🖱️ **Structured native tray menu with icons** — the tray right-click menu is grouped into **Show/Hide · Navigate ▸ · Window ▸ · View ▸ · Tools ▸ · How to ▸ · About · Quit** with native hover flyouts, and every clickable item carries a **16×16 icon glyph** — the same icon treatment as the classic v2.0.0 tray menu, in a compact layout.
+            - 🎨 **Redesigned About X-Now** — a sleeker card with the new brand icon, a feature grid (Save media / Tray controls / Quiet minimize / Links open out), and readable font sizes.
+            - 💠 **New X-Now branding everywhere** — the new icon set is applied on **all layers**: window/taskbar/task-manager icon, tray icon, the .exe launcher, and both installers.
             - ⚔️ Full comparison vs X Web in the [README](https://github.com/benedictusrey/X-Now/blob/main/README.md).
 
             ### 📦 Downloads

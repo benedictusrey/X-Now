@@ -31,7 +31,7 @@ static WATCHDOG_STARTED: AtomicBool = AtomicBool::new(false);
 /// `postMessage` — they must open INSIDE the app, not in an external browser).
 static POPUP_COUNTER: AtomicU32 = AtomicU32::new(0);
 
-fn x_data_directory(app: &AppHandle) -> Result<PathBuf, String> {
+pub(crate) fn x_data_directory(app: &AppHandle) -> Result<PathBuf, String> {
     // Keep the existing Personal WebView2 data directory so removing the
     // profile manager does not sign the current X session out.
     app.path()
@@ -215,6 +215,15 @@ pub fn launch_x_internal(app: &AppHandle, start_minimized: bool) -> Result<(), S
     let navigation_app = app.clone();
     let popup_app = app.clone();
 
+    // HD window icon (48x48, rendered from the icon.png master): tauri's
+    // default window icon decodes the .ico's LARGEST frame (256x256) and
+    // Windows downscales it for the title bar and taskbar — that is the
+    // blur. A purpose-made 48px render stays crisp across DPI scales
+    // (taskbar is 32px at 100% DPI, 48px at 150%).
+    let window_icon =
+        tauri::image::Image::from_bytes(include_bytes!("../../icons/system_tray/tray-48x48.png"))
+            .map_err(|error| error.to_string())?;
+
     // Signed-in handle cache for the titlebar (TikTok-Now pattern): X's SPA
     // overwrites `document.title` on route changes / unread counts, so the
     // native title is re-applied from this cache whenever the page title
@@ -232,6 +241,8 @@ pub fn launch_x_internal(app: &AppHandle, start_minimized: bool) -> Result<(), S
     .resizable(true)
     .center()
     .visible(!start_minimized)
+    .icon(window_icon)
+    .expect("X-Now bundled window icon is invalid")
     .data_directory(profile_data_dir)
     .initialization_script(X_HELPER_SCRIPT)
     // ── OAuth popup manager & external-link router ─────────────────────────
@@ -621,6 +632,8 @@ async fn save_media_bytes(
     .await
     .map_err(|error| error.to_string())?
 }
+
+
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

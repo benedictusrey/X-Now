@@ -1,3 +1,31 @@
+# 🚀 Release Notes — X-Now 2.1.0
+
+<p align="center">
+  <img src="icons/icon.png" width="96" height="96" alt="X-Now Icon"><br>
+  <strong>X-Now v2.1.0 — The Polish Release</strong><br>
+  <em>Smaller type, a tidier tray, and an About card worth reading.</em>
+</p>
+
+---
+
+## ✨ What's New in 2.1.0
+
+### ✍️ Composer & sidebar typography
+- The **"What's happening?"** composer and reply boxes now type at **15px** — a denser, more native feel instead of X's bulky ~19px default.
+- The **left sidebar menu** (Home, Explore, Notifications, Messages, Bookmarks, Profile) reads at **17px** — noticeably better readability.
+- Both are page-level CSS overrides injected by X-Now; your X settings are untouched.
+
+### 🖱️ Compact tray menu
+- Related actions are grouped into **Zoom**, **Current page** and **Tools** submenus.
+- **Launch on Startup** is now a standard checkmark toggle instead of a text swap.
+- The "How to X-Now" tips are short, scannable one-liners, and redundant separators are gone.
+
+### 🎨 Redesigned About X-Now
+- The bird icon is gone — replaced by a clean CSS "X" monogram.
+- A feature grid (Save media · Tray controls · Quiet minimize · Links open out), the live version, and readable font sizes make the card informative at a glance.
+
+---
+
 # 🚀 Release Notes — X-Now 2.0.0
 
 <p align="center">
@@ -66,19 +94,19 @@
 ## 🖥️ Platform Notes
 
 ### Windows 10 / 11
-- Installers: `X-Now_2.0.0_x64-setup.exe` (NSIS) or `X-Now_2.0.0_x64_en-US.msi` (WiX).
+- Installers: `X-Now_2.1.0_x64-setup.exe` (NSIS) or `X-Now_2.1.0_x64_en-US.msi` (WiX).
 - Requires the [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) (preinstalled on Windows 11).
 - Close-to-tray, OS-level audio muting, and Launch-on-Startup are all fully supported.
 
 ### macOS (Apple Silicon + Intel)
-- Installers: `X-Now_2.0.0_aarch64.dmg` and `X-Now_2.0.0_x64.dmg`.
+- Installers: `X-Now_2.1.0_aarch64.dmg` and `X-Now_2.1.0_x64.dmg`.
 - Requires macOS 10.15 or newer.
 - First launch of an unsigned build: **right-click the app → Open** (Gatekeeper bypass), then confirm in System Settings → Privacy & Security.
 - Close-to-tray, tray menu, and Launch-on-Startup (LaunchAgent) are fully supported.
 
 ### Linux (x64)
-- Packages: `X-Now_2.0.0_amd64.AppImage` (self-contained), plus `.deb` and `.rpm` variants.
-- The AppImage needs no installation: `chmod +x X-Now_2.0.0_amd64.AppImage && ./X-Now_2.0.0_amd64.AppImage`.
+- Packages: `X-Now_2.1.0_amd64.AppImage` (self-contained), plus `.deb` and `.rpm` variants.
+- The AppImage needs no installation: `chmod +x X-Now_2.1.0_amd64.AppImage && ./X-Now_2.1.0_amd64.AppImage`.
 - For `.deb`/`.rpm`: install `libwebkit2gtk-4.1` first (`sudo apt install libwebkit2gtk-4.1-dev` on Debian/Ubuntu).
 - Tray integration requires a system tray/appindicator extension on GNOME.
 

@@ -4,6 +4,24 @@ All notable changes to **X-Now** are documented here. The format follows [Keep a
 
 ---
 
+## [2.1.0] — 2026-08-15
+
+### 🎨 Changed
+- **Readable composer & sidebar text**: the post/reply composer ("What's happening?") now types at **15px** instead of X's ~19px default, and the left sidebar menu (Home, Explore, …) reads at **17px** — including the **"More" button, its flyout and X's dropdown menus** — injected page CSS, no X settings touched.
+- **Structured native tray menu**: the tray **right-click** now opens a clean native context menu — **Show/Hide, Navigate ▸ (Home/Explore/Notifications/Messages/Bookmarks/Profile), Window ▸ (Always on top, Launch on Startup, Refresh), View ▸ (Zoom in/out/reset, Developer tools), Tools ▸ (Copy URL, Open in browser, Compact memory, Cobalt downloader), How to ▸, About, Quit** — with native hover flyouts for every submenu. Every clickable item carries a **16×16 white glyph** (window, home, bell, envelope, star, wrench-style tools, info, X…), giving the menu the same icon treatment as the classic v2.0.0 tray menu while staying compact. Native menus behave identically on **Windows, Linux and macOS** (unlike a custom popup window), and checkmarks stay in sync with Always-on-top / Launch-on-Startup.
+- **New X-Now branding**: the new icon set (`icons_new`) is applied on **all layers** — window/taskbar/task manager (embedded .ico), tray icon, the About card — replacing the old bird mark. The **.exe launcher and the installer now embed the exact `icons_new/icon.ico`** (byte-identical copy into the bundle icon set).
+- **Redesigned About X-Now**: a sleeker, more compact card showing the **new brand icon**, with a feature grid (Save media / Tray controls / Quiet minimize / Links open out), the live version, and readable font sizes throughout.
+
+- **Windows installers with the X-Now branding**: `tauri build` now produces the NSIS `.exe` and WiX `.msi` installers in `installers/`, and the **NSIS installer/uninstaller icons are the new brand** (`bundle.windows.nsis.installerIcon`/`uninstallerIcon` — previously NSIS fell back to its default gray icon). The MSI's add/remove-programs icon uses the same embedded brand `.ico`.
+
+
+### 🔧 Fixed
+- **Blurry icon on the title bar, taskbar and tray**: the window and tray icons now use purpose-made 32px renders from the icon kit instead of the .ico's 256px frame that Windows was downscaling (native size = crisp at every DPI).
+- The "More" sidebar button kept X's large font: label spans are now forced to 17px directly (unread-count badges stay small).
+- Restored the `base64` dependency for embedding the new brand icon in the About overlay.
+
+---
+
 ## [2.0.0] — 2026-08-07
 
 ### 🚀 Added

@@ -10,13 +10,13 @@
 </p>
 
 <p align="center">
-  <strong>🎉 X-NOW RELEASE: v2.0.0 IS NOW LIVE! 🎉</strong><br/>
+  <strong>🎉 X-NOW RELEASE: v2.1.0 IS NOW LIVE! 🎉</strong><br/>
   <em>After meticulous development, the latest official build of X-Now is ready for deployment.</em>
 </p>
 
 <p align="center">
-  <strong>What's new in v2.0.0</strong><br/>
-  <em>Close-to-tray &amp; pause-on-minimize · true Show/Hide tray toggle · launch-on-startup (hidden to tray) · Windows audio-session mute guarantee</em>
+  <strong>What's new in v2.1.0</strong><br/>
+  <em>Composer text at 15px &amp; sidebar at 17px · compact grouped tray menu · redesigned About card · Windows audio-session mute guarantee</em>
 </p>
 
 <p align="center">
@@ -25,7 +25,7 @@
   <img alt="Linux" src="https://img.shields.io/badge/platform-Linux-FCC624?style=flat-square&logo=linux&logoColor=black">
   <img alt="Rust and Tauri 2" src="https://img.shields.io/badge/built%20with-Rust%20%2B%20Tauri%202-24C8DB?style=flat-square&logo=tauri&logoColor=white">
   <img alt="WebView2" src="https://img.shields.io/badge/rendering-WebView2%20%2F%20WebKit-0078D4?style=flat-square&logo=microsoftedge&logoColor=white">
-  <img alt="Version 2.0.0" src="https://img.shields.io/badge/version-2.0.0-1D9BF0?style=flat-square">
+  <img alt="Version 2.1.0" src="https://img.shields.io/badge/version-2.1.0-1D9BF0?style=flat-square">
   <a href="https://github.com/benedictusrey"><img src="https://img.shields.io/badge/author-%40benedictusrey-black?style=flat-square&logo=github"/></a>
 </p>
 
@@ -78,7 +78,7 @@ Why open a browser tab when you can command everything from your taskbar? X-Now 
 
 Same X, same account, same feed — but the *wrapper around it* is where the desktop magic lives. X-Now keeps the official X experience and adds the OS integration a browser tab can't offer:
 
-| Capability | 🐦 X-Now v2.0.0 | 🌐 X Web (browser tab) |
+| Capability | 🐦 X-Now v2.1.0 | 🌐 X Web (browser tab) |
 |---|---|---|
 | **Window & tray presence** | Dedicated native window + system-tray icon with feed shortcuts | One tab among dozens, no app identity |
 | **Close button** | Closes to the tray — app keeps running, media pauses instantly | Closes the tab and the whole browser stays heavy |
@@ -112,7 +112,7 @@ We provide cross-platform builds for **Windows, macOS, and Linux** through GitHu
 ### Windows
 
 1. Install the [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) if not already present.
-2. Run `X-Now_2.0.0_x64-setup.exe` (or the `.msi` variant).
+2. Run `X-Now_2.1.0_x64-setup.exe` (or the `.msi` variant).
 3. Sign in through the official X page shown inside the app.
 4. Reopen **X-Now** later to resume your existing session automatically.
 5. Use the system-tray icon for navigation, media saving, and app controls.
@@ -127,8 +127,8 @@ The login session is stored by the WebView2 application data folder on the local
 
 ### Linux
 
-1. Make the AppImage executable: `chmod +x X-Now_2.0.0_amd64.AppImage`
-2. Run it: `./X-Now_2.0.0_amd64.AppImage`
+1. Make the AppImage executable: `chmod +x X-Now_2.1.0_amd64.AppImage`
+2. Run it: `./X-Now_2.1.0_amd64.AppImage`
 3. Sign in through the X page inside the app.
 
 > **Tip:** On some Linux distributions you may need `libwebkit2gtk-4.1` installed: `sudo apt install libwebkit2gtk-4.1-dev`
@@ -244,7 +244,7 @@ The repository checks validate JavaScript syntax, Rust formatting, Rust dependen
 
 | Document | What you'll find |
 |---|---|
-| [RELEASE_NOTES.md](RELEASE_NOTES.md) | What's new in v2.0.0 — everything changed since v1.1.0, platform by platform |
+| [RELEASE_NOTES.md](RELEASE_NOTES.md) | What's new in v2.1.0 — everything changed since v2.0.0, platform by platform |
 | [CHANGELOG.md](CHANGELOG.md) | Full version history, one entry per release |
 | [SECURITY.md](SECURITY.md) | Supported versions, security & privacy guarantees |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Build from source on Windows, macOS & Linux; how to contribute |

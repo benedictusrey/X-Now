@@ -23,3 +23,6 @@ Thumbs.db
 
 # Installers are build products — binaries ship via GitHub Releases.
 /installers/
+
+# Freebuff agent workspace (local tooling, never committed)
+/.freebuff/

@@ -91,12 +91,13 @@ cargo tauri build --ci
 ### jsdom regression harness
 The injected script is tested headlessly with jsdom (the same harness pattern used across the *-Now apps):
 
+The harness lives in the repo at `scripts/verify-xnow-helpers.js` (60+ assertions on pause/resume/mute/on-screen rules and the full media-saving pipeline: candidate order, CORS fetch, toasts):
+
 ```bash
 mkdir -p /tmp/xnow-verify && cd /tmp/xnow-verify
 npm init -y && npm i jsdom
-# verify-xnow-helpers.js: 60+ assertions on pause/resume/mute/on-screen rules
-# and the full media-saving pipeline (candidate order, CORS fetch, toasts)
-node /tmp/xnow-verify/verify-xnow-helpers.js
+cp /path/to/repo/scripts/verify-xnow-helpers.js .
+node verify-xnow-helpers.js
 ```
 
 ---
@@ -119,7 +120,7 @@ node /tmp/xnow-verify/verify-xnow-helpers.js
 
 1. Bump the version in `src-tauri/Cargo.toml` + `src-tauri/tauri.conf.json` (and docs), build, and update `CHANGELOG.md` / `RELEASE_NOTES.md` / `README.md`.
 2. Commit and push to `main`.
-3. Push a version tag: `git tag v2.0.0 && git push origin v2.0.0` — the `release.yml` workflow builds **Windows, macOS and Linux** in parallel (each platform in its own job with its own native installers) and uploads them to a draft GitHub Release.
+3. Push a version tag: `git tag v2.1.0 && git push origin v2.1.0` — the `release.yml` workflow builds **Windows, macOS and Linux** in parallel (each platform in its own job with its own native installers) and uploads them to a draft GitHub Release.
 4. Review the draft release, then **Publish** it.
 
 ---

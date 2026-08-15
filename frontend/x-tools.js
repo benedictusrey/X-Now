@@ -123,6 +123,50 @@
       color: rgba(255, 255, 255, 0.72);
       word-break: break-all;
     }
+
+    /* ── X-Now UI polish: denser composer + readable sidebar ──────────── */
+    /* Composer ("What's happening?") and reply boxes: 15px text for a
+       more native typing experience (X defaults to ~19px). */
+    div[data-testid^="tweetTextarea"],
+    div[data-testid^="tweetTextarea"] .DraftEditor-root,
+    div[data-testid^="tweetTextarea"] .public-DraftEditor-content {
+      font-size: 15px !important;
+      line-height: 21px !important;
+    }
+
+    /* Left sidebar menu (Home, Explore, ..., incl. the "More" button):
+       17px for readability. The label spans are forced directly because
+       X puts its own font-size utility classes on them. Unread-count
+       badges (aria-label="N unread items") are excluded. */
+    nav[aria-label="Primary"] a,
+    nav[aria-label="Primary"] button,
+    nav[aria-label="Primary"] [role="button"],
+    nav[aria-label="Primary"] [role="tab"],
+    nav[aria-label="Primary"] [data-testid^="AppTabBar_"] {
+      font-size: 17px !important;
+    }
+    nav[aria-label="Primary"] [dir="ltr"] > span:not([aria-label]),
+    nav[aria-label="Primary"] [dir="ltr"] > span:not([aria-label]) *,
+    nav[aria-label="Primary"] a span:not([aria-label]),
+    nav[aria-label="Primary"] a span:not([aria-label]) *,
+    nav[aria-label="Primary"] button span:not([aria-label]),
+    nav[aria-label="Primary"] button span:not([aria-label]) * {
+      font-size: 17px !important;
+    }
+
+    /* The "More" flyout and X's dropdown menus: 17px. X puts its own
+       font-size utility classes directly on the LABEL SPANS inside menu
+       items (Lists, Communities, Business, Ads, Create your Space,
+       Settings and privacy, ...), so force the spans too — the container
+       rule alone is not enough. */
+    [role="menuitem"],
+    [role="menu"] a,
+    [role="menu"] button,
+    [role="menu"] span,
+    [role="menu"] span * {
+      font-size: 17px !important;
+    }
+
   `;
 
   function appendStyle() {
@@ -1025,4 +1069,5 @@
       refreshHandle();
     }, { once: true });
   }
+
 })();

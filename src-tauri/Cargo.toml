@@ -1,6 +1,6 @@
 [package]
 name = "x-now"
-version = "2.0.0"
+version = "2.1.0"
 description = "X-Now Desktop Client"
 authors = ["Benedictus"]
 edition = "2021"
@@ -17,11 +17,11 @@ path = "src/main.rs"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon", "devtools"] }
+tauri = { version = "2", features = ["tray-icon", "devtools", "image-png"] }
 tauri-plugin-shell = "2"
 tauri-plugin-autostart = "2"
 tokio = { version = "1", features = ["full"] }
-# Tiny pure-Rust helper: embeds the app icon into the About overlay as a
+# Tiny pure-Rust helper: embeds the brand icon into the About overlay as a
 # base64 data URI (works on the remote x.com page on every platform).
 base64 = "0.22"
 
@@ -32,10 +32,12 @@ base64 = "0.22"
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.61", features = [
     "Win32_Foundation",
+    "Win32_Graphics_Gdi",
     "Win32_Media_Audio",
     "Win32_Media_Audio_Endpoints",
     "Win32_System_Com",
     "Win32_System_Diagnostics_ToolHelp",
+    "Win32_UI_WindowsAndMessaging",
 ] }
 
 [profile.release]
