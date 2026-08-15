@@ -1,26 +1,25 @@
-# ── X-Now · CircleCI release pipeline ──────────────────────────────────────
-# Builds the Linux (AppImage / .deb / .rpm) and macOS (.dmg, Apple Silicon +
-# Intel) installer packages and uploads them to the GitHub release for the
-# tag passed via the `release-tag` pipeline parameter — the same release
-# procedure used for v2.0.0 (a draft GitHub release per tag, per-platform
-# installers attached after a successful build).
+# ── X-Now · CircleCI build pipeline (Linux + macOS installers) ─────────────
+# This pipeline ONLY builds the installer packages and exposes them as
+# downloadable artifacts. It does NOT touch GitHub — you download the files
+# from CircleCI and attach them to the GitHub release yourself.
 #
-# ── Trigger a release ─────────────────────────────────────────────────────
-#   curl -X POST https://circleci.com/api/v2/project/gh/<owner>/<repo>/pipeline \
-#     -H "Circle-Token: $CIRCLE_TOKEN" \
-#     -H "Content-Type: application/json" \
-#     -d '{"branch":"main","parameters":{"release-tag":"v2.1.0"}}'
+#   build-linux  -> AppImage, .deb, .rpm   (runs on the free Docker plan)
+#   build-macos  -> .dmg (Apple Silicon + Intel)  (requires a paid CircleCI
+#                   plan that includes macOS runners)
 #
-# The `release-tag` parameter (default "") gates the workflow, so normal
-# pushes never build installers.
+# ── How to run it ─────────────────────────────────────────────────────────
+# 1. app.circleci.com → Projects → X-Now → Trigger Pipeline (top right)
+# 2. Branch: main
+# 3. Parameters → release-tag: type any value, e.g. v2.1.0
+#    (the value is only a switch that turns the build on — it is not pushed
+#     to GitHub)
+# 4. Trigger Pipeline, wait for the two jobs to finish
+# 5. Open each job → "Artifacts" tab → download the installer files
 #
-# ── Prerequisites ─────────────────────────────────────────────────────────
-# • Connect the project to GitHub in CircleCI (Projects → X-Now → Connect)
-#   so CircleCI injects the `GITHUB_TOKEN` env var used to create/update the
-#   GitHub release. The token needs repo contents:write access.
-# • The macOS executor is `macos.m1.medium.gen1` (Apple Silicon). If your
-#   CircleCI plan lacks M1 runners, switch to an Intel executor
-#   (`macos.x86.medium.gen2`) — both .dmg targets cross-compile either way.
+# Note: normal pushes to main run NO jobs (the workflow is gated on the
+# `release-tag` parameter). macOS on CircleCI needs a paid plan; Linux builds
+# work on the free plan. (GitHub Actions already builds macOS for free, so
+# the .dmg files also come from the Actions run.)
 version: 2.1
 
 parameters:
@@ -39,23 +38,6 @@ executors:
     resource_class: macos.m1.medium.gen1
 
 commands:
-  install-github-cli:
-    description: Install the GitHub CLI (gh) for release management
-    steps:
-      - run:
-          name: Install GitHub CLI
-          command: |
-            set -e
-            if [[ "$OSTYPE" == "darwin"* ]]; then
-              brew install gh
-            else
-              type -p curl >/dev/null || sudo apt-get update
-              curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
-              echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
-              sudo apt-get update
-              sudo apt-get install -y gh
-            fi
-
   setup-rust:
     description: Pin the latest stable Rust toolchain
     parameters:
@@ -93,51 +75,7 @@ commands:
           name: Install Tauri CLI
           command: npm install -g @tauri-apps/cli@2
 
-  upload-to-release:
-    description: Upload installer packages to the GitHub release
-    parameters:
-      tag:
-        type: string
-      glob:
-        type: string
-    steps:
-      - run:
-          name: Upload artifacts to release
-          command: |
-            set -e
-            export GH_TOKEN="$GITHUB_TOKEN"
-            export REPO="$CIRCLE_PROJECT_USERNAME/$CIRCLE_PROJECT_REPONAME"
-            shopt -s nullglob
-            for f in << parameters.glob >>; do
-              echo "Uploading: $f"
-              gh release upload "<< parameters.tag >>" "$f" --clobber --repo "$REPO"
-            done
-
 jobs:
-  create-release:
-    executor: linux
-    steps:
-      - checkout
-      - install-github-cli
-      - run:
-          name: Create (or refresh) the draft release
-          command: |
-            set -e
-            export GH_TOKEN="$GITHUB_TOKEN"
-            export RELEASE_TAG="<< pipeline.parameters.release-tag >>"
-            export REPO="$CIRCLE_PROJECT_USERNAME/$CIRCLE_PROJECT_REPONAME"
-            # Idempotent: if a prior pipeline (e.g. GitHub Actions) already
-            # created the tag's release, keep it — just upload our assets.
-            if gh release view "$RELEASE_TAG" --repo "$REPO" >/dev/null 2>&1; then
-              echo "Release $RELEASE_TAG already exists — will upload assets only"
-            else
-              gh release create "$RELEASE_TAG" \
-                --repo "$REPO" \
-                --title "X-Now $RELEASE_TAG" \
-                --notes-file .circleci/release-notes.md \
-                --draft
-            fi
-
   build-linux:
     executor: linux
     steps:
@@ -159,9 +97,15 @@ jobs:
           command: |
             cd src-tauri
             npx tauri build --bundles appimage,deb,rpm
-      - upload-to-release:
-          tag: << pipeline.parameters.release-tag >>
-          glob: "src-tauri/target/release/bundle/{appimage,deb,rpm}/*"
+      - store_artifacts:
+          path: src-tauri/target/release/bundle/appimage
+          destination: linux-appimage
+      - store_artifacts:
+          path: src-tauri/target/release/bundle/deb
+          destination: linux-deb
+      - store_artifacts:
+          path: src-tauri/target/release/bundle/rpm
+          destination: linux-rpm
 
   build-macos:
     executor: macos
@@ -181,9 +125,12 @@ jobs:
           command: |
             cd src-tauri
             npx tauri build --target x86_64-apple-darwin --bundles dmg
-      - upload-to-release:
-          tag: << pipeline.parameters.release-tag >>
-          glob: "src-tauri/target/**/bundle/dmg/*.dmg"
+      - store_artifacts:
+          path: src-tauri/target/aarch64-apple-darwin/release/bundle/dmg
+          destination: macos-arm64-dmg
+      - store_artifacts:
+          path: src-tauri/target/x86_64-apple-darwin/release/bundle/dmg
+          destination: macos-x64-dmg
 
 workflows:
   release:
@@ -193,10 +140,5 @@ workflows:
         - not:
             equal: [ "", << pipeline.parameters.release-tag >> ]
     jobs:
-      - create-release
-      - build-linux:
-          requires:
-            - create-release
-      - build-macos:
-          requires:
-            - create-release
+      - build-linux
+      - build-macos
