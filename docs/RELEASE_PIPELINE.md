@@ -1,93 +1,193 @@
-# 🚀 X-Now Release Pipeline — Deploy Guide
+# X-Now v2.1.0 release pipeline: Azure DevOps guide
 
-X-Now ships installer packages for **Windows, macOS and Linux**. The workflow
-is:
+This repository uses Azure Pipelines as a manual build service. The pipeline builds the installers, validates the packages, and makes them available for download. It does not push files to GitHub or publish a GitHub Release for you.
 
-1. **GitHub Actions** builds **Windows** installers (`.exe` + `.msi`) and
-   macOS + Linux installers automatically when a `v*` tag is pushed, creating
-   a **draft GitHub release** (same procedure as v2.0.0).
-2. **CircleCI** (optional) builds **Linux** (`.AppImage`/`.deb`/`.rpm`) and
-   **macOS** (`.dmg` ×2) installers **for manual download** — you download the
-   files and attach them to the GitHub release yourself.
+## Build matrix
 
----
+| Job | Agent | Output |
+|---|---|---|
+| `build_windows` | `windows-latest` | Windows x64 NSIS `.exe` and WiX `.msi` |
+| `build_linux` | `ubuntu-24.04` | Linux x64 `.AppImage`, `.deb`, and `.rpm` |
+| `build_macos` | `macos-15` | One universal `.dmg` containing arm64 and x86_64 code |
+| `package_release` | `ubuntu-24.04` | Combined artifact with installers, branding assets, and SHA-256 manifests |
 
-## Part 1 — One-time CircleCI setup
+A universal installer means one macOS installer containing both Apple Silicon and Intel binaries. Windows and Linux still receive their own native packages. There is no single installer that runs on all three operating systems.
 
-1. Open <https://app.circleci.com> → **Sign Up** → **Continue with GitHub** →
-   click the green **Authorize** button.
-2. Left sidebar → **Projects** → find **X-Now** → **Set Up Project** → choose
-   the **main** branch → **Set Up Project**.
-3. Nothing else is required — this config does **not** need a GitHub token or
-   any environment variables (it never touches GitHub; it only builds).
+The pipeline validates:
 
-> **Note:** Linux builds run on CircleCI's free Docker plan. **macOS builds
-> require a paid CircleCI plan** that includes macOS runners — if you're on
-> the free plan, the `build-macos` job will fail. You don't need macOS from
-> CircleCI though: **GitHub Actions already builds the `.dmg` files for free**,
-> so the macOS installers come from the Actions run.
+- Version `2.1.0` in `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml`.
+- The presence of `src-tauri/Cargo.lock`.
+- The requested root icons in `icons/`, including `icon.ico` and `icon.png`.
+- The required package type for every platform.
+- Both `arm64` and `x86_64` slices in the macOS application with `lipo`.
+- SHA-256 checksums for the Azure artifact and the GitHub upload folder.
 
----
+## Before you start
 
-## Part 2 — Trigger the CircleCI build & download the installers
+1. Commit and push `azure-pipelines.yml` at the repository root. The file must exist in the branch that Azure will build.
+2. Commit the v2.1.0 application files and the release Markdown before creating the final GitHub release.
+3. Keep the repository private if that is your preference. Azure can build a private GitHub repository after you authorize its GitHub connection.
+4. The current pipeline creates unsigned packages. Windows SmartScreen and macOS Gatekeeper can display warnings. Signing and notarization require additional certificates and secret variables.
 
-1. <https://app.circleci.com> → **Projects** → **X-Now** → **Trigger Pipeline**
-   (blue button, top right).
-2. **Branch:** `main`.
-3. **Parameters → `release-tag`:** type `v2.1.0` (any non-empty value turns the
-   build on; it is only a switch and is *not* pushed to GitHub).
-4. **Trigger Pipeline** → the `release` workflow runs two jobs in parallel:
-   `build-linux` and `build-macos`. First run takes ~10–20 min (Rust deps +
-   Tauri CLI install).
-5. When a job turns green, open it → **Artifacts** tab → download the files:
-   - `build-linux` → `linux-appimage/*.AppImage`, `linux-deb/*.deb`,
-     `linux-rpm/*.rpm`
-   - `build-macos` → `macos-arm64-dmg/*.dmg`, `macos-x64-dmg/*.dmg`
+The Azure free-tier rules can change. Check the current [Microsoft-hosted parallel jobs and limits](https://learn.microsoft.com/en-us/azure/devops/pipelines/licensing/concurrent-jobs?view=azure-devops) before planning a large build.
 
----
+## 1. Create the Azure DevOps project
 
-## Part 3 — Publish on GitHub
+1. Open [Azure DevOps](https://dev.azure.com/) and sign in.
+2. Create or select an organization.
+3. Create a project named **X-Now**.
+4. Set the project visibility to **Private**. The GitHub repository can remain private.
+5. Open **Pipelines** in the left menu and select **New pipeline**.
+6. Choose **GitHub** as the source.
+7. Authorize Azure DevOps to access GitHub when prompted.
+8. Select the private repository **benedictusrey/X-Now**.
+9. Choose **Existing Azure Pipelines YAML file**.
+10. Select branch **main** and file **/azure-pipelines.yml**.
+11. Select **Continue**, review the YAML, and choose **Run** or **Save**.
 
-1. The **GitHub Actions** run (triggered by the `v2.1.0` tag push) creates a
-   **draft release** at <https://github.com/benedictusrey/X-Now/releases> with
-   the Windows installers (and its own macOS/Linux copies) attached.
-2. Open the draft **"X-Now v2.1.0"** → **Edit** → in **Assets**, click the
-   **upload icon** (or drag & drop) and add the installers you downloaded from
-   CircleCI (Linux `.AppImage`/`.deb`/`.rpm` and both `.dmg` files).
-3. Double-check all 11 assets are listed, then **Publish release**.
+If Azure cannot see the repository, return to the GitHub authorization screen and grant access to the specific private repository. Do not make the repository public just to solve an authorization problem.
 
----
+## 2. Run the v2.1.0 build
 
-## Future releases (v2.2.0 and beyond)
+The YAML has `trigger: none`, so it does not run on every push.
 
-```bash
-# 1. Bump the version in src-tauri/tauri.conf.json AND src-tauri/Cargo.toml
-#    (keep both in sync) + update CHANGELOG.md / RELEASE_NOTES.md
+1. Open **Pipelines** and select the X-Now pipeline.
+2. Select **Run pipeline**.
+3. Choose the **main** branch.
+4. Set the version parameter to **2.1.0**.
+5. Select **Run**.
+6. Open the run and watch the four jobs.
 
-# 2. Commit & push
-git add -A
-git commit -m "X-Now v2.2.0 — <what changed>"
-git push origin main
+The three platform jobs can run independently. If your private Azure organization has only one Microsoft-hosted parallel job, Azure queues the jobs and runs them one at a time. That is expected. The `package_release` job starts only after all three platform jobs succeed.
 
-# 3. Tag & push -> GitHub Actions builds everything and drafts the release
-git tag -a v2.2.0 -m "X-Now v2.2.0"
-git push origin v2.2.0
+## 3. Download the combined artifact
 
-# 4. (optional) Rebuild Linux/macOS on CircleCI for manual download
-#    -> Trigger Pipeline with release-tag: v2.2.0
+When `package_release` is green:
 
-# 5. Publish the draft release on GitHub (Part 3)
+1. Open the completed pipeline run.
+2. Open the **Summary** page.
+3. In **Artifacts**, select **x-now-v2.1.0-release**.
+4. Download the artifact and extract it on your computer.
+
+The useful folder is:
+
+```text
+x-now-v2.1.0-release/
+├── github-assets/       # upload these files to the GitHub Release
+│   ├── *.exe
+│   ├── *.msi
+│   ├── *.AppImage
+│   ├── *.deb
+│   ├── *.rpm
+│   ├── *.dmg
+│   └── SHA256SUMS.txt
+├── windows/             # Windows packages plus the platform checksum file
+├── linux/               # Linux packages plus the platform checksum file
+├── macos/               # universal DMG plus the platform checksum file
+├── branding/            # icon.ico, icon.png, and icon.icns
+├── BUILD_INFO.txt
+└── SHA256SUMS.txt       # checksums with platform-relative paths
 ```
 
----
+For GitHub, use the installer files and `SHA256SUMS.txt` inside `github-assets/`. The manifest in that folder uses the same flat filenames as the GitHub Release assets.
+
+Azure stores downloadable pipeline artifacts separately from the source repository. See Microsoft's [Publish and download pipeline artifacts](https://learn.microsoft.com/en-us/azure/devops/pipelines/artifacts/pipeline-artifacts?view=azure-devops) documentation for the current Azure interface.
+
+## 4. Verify the downloads
+
+### Windows
+
+Open PowerShell in the `github-assets` folder:
+
+```powershell
+Get-FileHash .\X-Now_2.1.0_x64-setup.exe -Algorithm SHA256
+```
+
+Compare the resulting hash with the matching line in `SHA256SUMS.txt`. Use the actual filename produced by the pipeline if it differs.
+
+### Linux or macOS
+
+Open a terminal in the `github-assets` folder:
+
+```bash
+shasum -a 256 -c SHA256SUMS.txt
+```
+
+On Linux, `sha256sum -c SHA256SUMS.txt` provides the same check.
+
+A successful verification reports `OK` for every installer. Do not install a package whose hash does not match.
+
+## 5. Create the private GitHub Release
+
+1. Open the private repository on GitHub.
+2. Select **Releases**.
+3. Select **Draft a new release**.
+4. Choose the existing tag **v2.1.0**, or create that tag from the final commit if it does not exist.
+5. Set the release title to **X-Now v2.1.0**.
+6. Paste the contents of `RELEASE_NOTES.md` into the release description, or use the same headings and text.
+7. Upload every installer from `github-assets/`:
+   - Windows: `.exe` and `.msi`.
+   - Linux: `.AppImage`, `.deb`, and `.rpm`.
+   - macOS: the universal `.dmg`.
+8. Upload `github-assets/SHA256SUMS.txt`.
+9. Review the asset names and release description.
+10. Use **Publish release** only after the manual smoke tests pass.
+
+GitHub Release assets remain private when the repository is private. The branding files do not need to be uploaded as release assets.
+
+## 6. Test one installer per platform
+
+### Windows
+
+- Use Windows 10 or 11 on an x64 machine.
+- Confirm that WebView2 is installed.
+- Install the NSIS `.exe` or WiX `.msi`.
+- Sign in, open the tray menu, test Show / Hide, Always on top, Launch on Startup, media saving, and an external link.
+- Confirm the X-Now icon appears in the installer, taskbar, window, and tray.
+
+### macOS
+
+- Use macOS 11 or newer.
+- Open the universal DMG and copy X-Now to Applications.
+- Approve the unsigned application through the right-click **Open** action.
+- Confirm the application launches on both an Apple Silicon Mac and an Intel Mac when available.
+- Test the tray menu, About card, startup option, media saving, and external links.
+
+### Linux
+
+- Use an x64 Linux distribution with WebKitGTK 4.1.
+- Test the AppImage first.
+- Install the DEB or RPM on a matching distribution when possible.
+- On GNOME, install an AppIndicator extension if the tray icon is not visible.
+- Test the tray menu, media saving, and external links.
 
 ## Troubleshooting
 
-| Symptom | Fix |
+| Symptom | Action |
 |---|---|
-| `build-macos` fails with "no such resource class" | macOS runners need a paid CircleCI plan — use the `.dmg` files from the GitHub Actions run instead |
-| `build-linux` fails on webkit2gtk | The job installs `libwebkit2gtk-4.1-dev`; check the apt step output for network errors |
-| No jobs run after triggering | The `release-tag` parameter was left empty — type a value like `v2.1.0` |
-| Pipeline says "success" but built nothing | Same cause: parameter empty → nothing runs (by design) |
+| Azure cannot list the private repository | Re-authorize the Azure DevOps GitHub connection and grant access to `benedictusrey/X-Now`. |
+| Jobs remain queued | Your organization is using one hosted parallel job. Wait for the earlier job to finish, or request more parallelism. |
+| Version validation fails | Keep the version in `Cargo.toml`, `tauri.conf.json`, the pipeline parameter, and the release tag aligned. |
+| An icon validation step fails | Confirm `icons/icon.ico`, `icons/icon.png`, `icons/icon.icns`, and the required size-specific PNG files are committed. |
+| Linux build cannot find WebKitGTK | Check the `apt-get` step and the availability of the Ubuntu hosted image. |
+| macOS reports a missing architecture | The universal build must contain both `arm64` and `x86_64`; inspect the `lipo` output before downloading the artifact. |
+| Windows or macOS shows a trust warning | The current pipeline does not sign or notarize packages. Verify the SHA-256 checksum and approve only packages you built and checked. |
 
-*Maintained by [@benedictusrey](https://github.com/benedictusrey)*
+## Future releases
+
+For a future version:
+
+1. Update `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json`, and the release Markdown.
+2. Update the default `version` parameter in `azure-pipelines.yml`.
+3. Run the source checks and commit the changes.
+4. Push the commit to `main`.
+5. Run Azure Pipelines with the matching version.
+6. Verify the combined artifact and test each platform.
+7. Create the matching GitHub tag and private release.
+8. Upload the files from `github-assets/` and publish the release.
+
+The Azure pipeline never moves tags, rewrites Git history, or publishes to GitHub automatically.
+
+---
+
+Maintained by [@benedictusrey](https://github.com/benedictusrey).

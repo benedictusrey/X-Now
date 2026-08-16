@@ -1,0 +1,553 @@
+# X-Now v2.1.0 Azure Pipelines release build
+#
+# This pipeline is manual by design. It builds one native installer set per
+# operating system and publishes the files as Azure Pipeline Artifacts.
+# It does not publish to GitHub automatically.
+#
+# The output is:
+#   Windows x64: NSIS .exe and WiX .msi
+#   Linux x64:   AppImage, .deb, and .rpm
+#   macOS:       one universal .dmg containing arm64 and x86_64 code
+#
+# The macOS universal build is a single installer for both Apple Silicon and
+# Intel Macs. Windows and Linux receive native x64 packages because those are
+# the broadest targets for this repository's current release configuration.
+
+trigger: none
+pr: none
+
+parameters:
+- name: version
+  displayName: Release version
+  type: string
+  default: '2.1.0'
+
+jobs:
+- job: build_windows
+  displayName: 'Build Windows x64 installers (v${{ parameters.version }})'
+  timeoutInMinutes: 60
+  pool:
+    vmImage: windows-latest
+  steps:
+  - checkout: self
+    clean: true
+
+  - task: UseNode@1
+    displayName: Use Node.js 20
+    inputs:
+      version: '20.x'
+
+  - pwsh: |
+      $ErrorActionPreference = 'Stop'
+      rustup toolchain install stable --profile minimal --no-self-update
+      if ($LASTEXITCODE -ne 0) { throw 'Rust stable installation failed.' }
+      rustup default stable
+      if ($LASTEXITCODE -ne 0) { throw 'Could not select the Rust stable toolchain.' }
+      rustc --version
+      cargo --version
+    displayName: Install Rust stable
+
+  - pwsh: |
+      $ErrorActionPreference = 'Stop'
+      npx --yes @tauri-apps/cli@2 --version
+      if ($LASTEXITCODE -ne 0) { throw 'Tauri CLI installation failed.' }
+    displayName: Prepare Tauri CLI
+
+  - pwsh: |
+      $ErrorActionPreference = 'Stop'
+      $sourceRoot = '$(Build.SourcesDirectory)'
+      $tauriRoot = Join-Path $sourceRoot 'src-tauri'
+      $expectedVersion = '${{ parameters.version }}'
+      $configPath = Join-Path $tauriRoot 'tauri.conf.json'
+      $cargoManifest = Join-Path $tauriRoot 'Cargo.toml'
+      $cargoLock = Join-Path $tauriRoot 'Cargo.lock'
+
+      if (-not (Test-Path -LiteralPath $cargoLock -PathType Leaf)) {
+        throw "Missing reproducibility lockfile: $cargoLock"
+      }
+
+      $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
+      if ($config.version -ne $expectedVersion) {
+        throw "tauri.conf.json is version '$($config.version)', expected '$expectedVersion'."
+      }
+
+      $metadataJson = & cargo metadata --manifest-path $cargoManifest --locked --no-deps --format-version 1 | Out-String
+      $metadataExitCode = $LASTEXITCODE
+      if ($metadataExitCode -ne 0) { throw 'Cargo metadata validation failed.' }
+      $metadata = $metadataJson | ConvertFrom-Json
+      $package = $metadata.packages | Where-Object { $_.name -eq 'x-now' } | Select-Object -First 1
+      if ($null -eq $package -or $package.version -ne $expectedVersion) {
+        throw "Cargo package version does not match '$expectedVersion'."
+      }
+
+      $rootIcons = Join-Path $sourceRoot 'icons'
+      $bundleIcons = Join-Path $tauriRoot 'icons'
+      New-Item -ItemType Directory -Force -Path $bundleIcons | Out-Null
+      $requiredIcons = @(
+        'icon.ico',
+        'icon.png',
+        'icon.icns',
+        '32x32.png',
+        '128x128.png',
+        '128x128@2x.png'
+      )
+
+      foreach ($iconName in $requiredIcons) {
+        $sourceIcon = Join-Path $rootIcons $iconName
+        $targetIcon = Join-Path $bundleIcons $iconName
+        if (-not (Test-Path -LiteralPath $sourceIcon -PathType Leaf)) {
+          throw "Missing required root icon: $sourceIcon"
+        }
+        if ((Get-Item -LiteralPath $sourceIcon).Length -le 0) {
+          throw "Required icon is empty: $sourceIcon"
+        }
+        Copy-Item -LiteralPath $sourceIcon -Destination $targetIcon -Force
+        $sourceHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $sourceIcon).Hash
+        $targetHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $targetIcon).Hash
+        if ($sourceHash -ne $targetHash) {
+          throw "Icon copy verification failed for $iconName."
+        }
+      }
+    displayName: Validate v2.1.0 metadata and sync requested icons
+
+  - pwsh: |
+      $ErrorActionPreference = 'Stop'
+      $tauriRoot = Join-Path '$(Build.SourcesDirectory)' 'src-tauri'
+      Push-Location $tauriRoot
+      try {
+        npx --yes @tauri-apps/cli@2 build --ci --bundles nsis,msi
+        if ($LASTEXITCODE -ne 0) { throw 'Windows Tauri build failed.' }
+      }
+      finally {
+        Pop-Location
+      }
+    displayName: Build Windows NSIS and MSI installers
+
+  - pwsh: |
+      $ErrorActionPreference = 'Stop'
+      $bundleRoot = Join-Path '$(Build.SourcesDirectory)' 'src-tauri/target/release/bundle'
+      $stageRoot = Join-Path '$(Build.ArtifactStagingDirectory)' 'windows'
+      New-Item -ItemType Directory -Force -Path $stageRoot | Out-Null
+
+      foreach ($bundleName in @('nsis', 'msi')) {
+        $bundlePath = Join-Path $bundleRoot $bundleName
+        if (-not (Test-Path -LiteralPath $bundlePath -PathType Container)) {
+          throw "Missing Windows bundle directory: $bundlePath"
+        }
+      }
+
+      $packageFiles = @(
+        Get-ChildItem -LiteralPath (Join-Path $bundleRoot 'nsis') -File -Filter '*.exe'
+        Get-ChildItem -LiteralPath (Join-Path $bundleRoot 'msi') -File -Filter '*.msi'
+      )
+      if ($packageFiles.Count -lt 2) {
+        throw 'Expected at least one Windows .exe and one .msi installer.'
+      }
+
+      foreach ($packageFile in $packageFiles) {
+        Copy-Item -LiteralPath $packageFile.FullName -Destination $stageRoot -Force
+      }
+
+      $hashLines = Get-ChildItem -LiteralPath $stageRoot -File |
+        Sort-Object Name |
+        ForEach-Object {
+          $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash.ToLowerInvariant()
+          '{0}  {1}' -f $hash, $_.Name
+        }
+      $hashLines | Set-Content -LiteralPath (Join-Path $stageRoot 'checksums.txt') -Encoding utf8NoBOM
+    displayName: Validate and stage Windows installers
+
+  - task: PublishPipelineArtifact@1
+    displayName: Publish Windows installers
+    inputs:
+      targetPath: '$(Build.ArtifactStagingDirectory)/windows'
+      artifact: windows-installers
+      publishLocation: pipeline
+
+- job: build_linux
+  displayName: 'Build Linux x64 installers (v${{ parameters.version }})'
+  timeoutInMinutes: 60
+  pool:
+    vmImage: ubuntu-24.04
+  steps:
+  - checkout: self
+    clean: true
+
+  - bash: |
+      set -euxo pipefail
+      sudo apt-get update
+      sudo apt-get install -y \
+        build-essential \
+        curl \
+        wget \
+        file \
+        libssl-dev \
+        libxdo-dev \
+        libwebkit2gtk-4.1-dev \
+        libayatana-appindicator3-dev \
+        librsvg2-dev \
+        patchelf \
+        rpm
+    displayName: Install Linux and Tauri system dependencies
+
+  - task: UseNode@1
+    displayName: Use Node.js 20
+    inputs:
+      version: '20.x'
+
+  - bash: |
+      set -euxo pipefail
+      rustup toolchain install stable --profile minimal --no-self-update
+      rustup default stable
+      rustc --version
+      cargo --version
+    displayName: Install Rust stable
+
+  - bash: |
+      set -euxo pipefail
+      npx --yes @tauri-apps/cli@2 --version
+    displayName: Prepare Tauri CLI
+
+  - pwsh: |
+      $ErrorActionPreference = 'Stop'
+      $sourceRoot = '$(Build.SourcesDirectory)'
+      $tauriRoot = Join-Path $sourceRoot 'src-tauri'
+      $expectedVersion = '${{ parameters.version }}'
+      $configPath = Join-Path $tauriRoot 'tauri.conf.json'
+      $cargoManifest = Join-Path $tauriRoot 'Cargo.toml'
+      $cargoLock = Join-Path $tauriRoot 'Cargo.lock'
+
+      if (-not (Test-Path -LiteralPath $cargoLock -PathType Leaf)) {
+        throw "Missing reproducibility lockfile: $cargoLock"
+      }
+      $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
+      if ($config.version -ne $expectedVersion) {
+        throw "tauri.conf.json is version '$($config.version)', expected '$expectedVersion'."
+      }
+      $metadataJson = & cargo metadata --manifest-path $cargoManifest --locked --no-deps --format-version 1 | Out-String
+      $metadataExitCode = $LASTEXITCODE
+      if ($metadataExitCode -ne 0) { throw 'Cargo metadata validation failed.' }
+      $metadata = $metadataJson | ConvertFrom-Json
+      $package = $metadata.packages | Where-Object { $_.name -eq 'x-now' } | Select-Object -First 1
+      if ($null -eq $package -or $package.version -ne $expectedVersion) {
+        throw "Cargo package version does not match '$expectedVersion'."
+      }
+
+      $rootIcons = Join-Path $sourceRoot 'icons'
+      $bundleIcons = Join-Path $tauriRoot 'icons'
+      New-Item -ItemType Directory -Force -Path $bundleIcons | Out-Null
+      $requiredIcons = @('icon.ico', 'icon.png', 'icon.icns', '32x32.png', '128x128.png', '128x128@2x.png')
+      foreach ($iconName in $requiredIcons) {
+        $sourceIcon = Join-Path $rootIcons $iconName
+        $targetIcon = Join-Path $bundleIcons $iconName
+        if (-not (Test-Path -LiteralPath $sourceIcon -PathType Leaf)) { throw "Missing required root icon: $sourceIcon" }
+        if ((Get-Item -LiteralPath $sourceIcon).Length -le 0) { throw "Required icon is empty: $sourceIcon" }
+        Copy-Item -LiteralPath $sourceIcon -Destination $targetIcon -Force
+        $sourceHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $sourceIcon).Hash
+        $targetHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $targetIcon).Hash
+        if ($sourceHash -ne $targetHash) { throw "Icon copy verification failed for $iconName." }
+      }
+    displayName: Validate v2.1.0 metadata and sync requested icons
+
+  - bash: |
+      set -euxo pipefail
+      cd "$(Build.SourcesDirectory)/src-tauri"
+      npx --yes @tauri-apps/cli@2 build --ci --bundles appimage,deb,rpm
+    displayName: Build Linux AppImage, DEB, and RPM installers
+
+  - bash: |
+      set -euxo pipefail
+      bundle_root="$(Build.SourcesDirectory)/src-tauri/target/release/bundle"
+      stage_root="$(Build.ArtifactStagingDirectory)/linux"
+      mkdir -p "$stage_root"
+
+      for bundle_name in appimage deb rpm; do
+        if [ ! -d "$bundle_root/$bundle_name" ]; then
+          echo "Missing Linux bundle directory: $bundle_root/$bundle_name" >&2
+          exit 1
+        fi
+      done
+
+      appimage_count=0
+      for package_file in "$bundle_root"/appimage/*.AppImage; do
+        if [ -f "$package_file" ]; then
+          cp "$package_file" "$stage_root/"
+          appimage_count=$((appimage_count + 1))
+        fi
+      done
+      deb_count=0
+      for package_file in "$bundle_root"/deb/*.deb; do
+        if [ -f "$package_file" ]; then
+          cp "$package_file" "$stage_root/"
+          deb_count=$((deb_count + 1))
+        fi
+      done
+      rpm_count=0
+      for package_file in "$bundle_root"/rpm/*.rpm; do
+        if [ -f "$package_file" ]; then
+          cp "$package_file" "$stage_root/"
+          rpm_count=$((rpm_count + 1))
+        fi
+      done
+
+      if [ "$appimage_count" -lt 1 ] || [ "$deb_count" -lt 1 ] || [ "$rpm_count" -lt 1 ]; then
+        echo 'Expected an AppImage, a DEB, and an RPM package.' >&2
+        exit 1
+      fi
+
+      (
+        cd "$stage_root"
+        for package_file in *.AppImage *.deb *.rpm; do
+          sha256sum "$package_file"
+        done
+      ) > "$stage_root/checksums.txt"
+    displayName: Validate and stage Linux installers
+
+  - task: PublishPipelineArtifact@1
+    displayName: Publish Linux installers
+    inputs:
+      targetPath: '$(Build.ArtifactStagingDirectory)/linux'
+      artifact: linux-installers
+      publishLocation: pipeline
+
+- job: build_macos
+  displayName: 'Build macOS universal installer (v${{ parameters.version }})'
+  timeoutInMinutes: 60
+  pool:
+    vmImage: macos-15
+  steps:
+  - checkout: self
+    clean: true
+
+  - bash: |
+      set -euxo pipefail
+      xcodebuild -version
+      rustup toolchain install stable --profile minimal --no-self-update
+      rustup default stable
+      rustup target add aarch64-apple-darwin x86_64-apple-darwin
+      rustc --version
+      cargo --version
+    displayName: Install Rust and Intel/Apple Silicon targets
+
+  - task: UseNode@1
+    displayName: Use Node.js 20
+    inputs:
+      version: '20.x'
+
+  - bash: |
+      set -euxo pipefail
+      npx --yes @tauri-apps/cli@2 --version
+    displayName: Prepare Tauri CLI
+
+  - pwsh: |
+      $ErrorActionPreference = 'Stop'
+      $sourceRoot = '$(Build.SourcesDirectory)'
+      $tauriRoot = Join-Path $sourceRoot 'src-tauri'
+      $expectedVersion = '${{ parameters.version }}'
+      $configPath = Join-Path $tauriRoot 'tauri.conf.json'
+      $cargoManifest = Join-Path $tauriRoot 'Cargo.toml'
+      $cargoLock = Join-Path $tauriRoot 'Cargo.lock'
+
+      if (-not (Test-Path -LiteralPath $cargoLock -PathType Leaf)) {
+        throw "Missing reproducibility lockfile: $cargoLock"
+      }
+      $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
+      if ($config.version -ne $expectedVersion) {
+        throw "tauri.conf.json is version '$($config.version)', expected '$expectedVersion'."
+      }
+      $metadataJson = & cargo metadata --manifest-path $cargoManifest --locked --no-deps --format-version 1 | Out-String
+      $metadataExitCode = $LASTEXITCODE
+      if ($metadataExitCode -ne 0) { throw 'Cargo metadata validation failed.' }
+      $metadata = $metadataJson | ConvertFrom-Json
+      $package = $metadata.packages | Where-Object { $_.name -eq 'x-now' } | Select-Object -First 1
+      if ($null -eq $package -or $package.version -ne $expectedVersion) {
+        throw "Cargo package version does not match '$expectedVersion'."
+      }
+
+      $rootIcons = Join-Path $sourceRoot 'icons'
+      $bundleIcons = Join-Path $tauriRoot 'icons'
+      New-Item -ItemType Directory -Force -Path $bundleIcons | Out-Null
+      $requiredIcons = @('icon.ico', 'icon.png', 'icon.icns', '32x32.png', '128x128.png', '128x128@2x.png')
+      foreach ($iconName in $requiredIcons) {
+        $sourceIcon = Join-Path $rootIcons $iconName
+        $targetIcon = Join-Path $bundleIcons $iconName
+        if (-not (Test-Path -LiteralPath $sourceIcon -PathType Leaf)) { throw "Missing required root icon: $sourceIcon" }
+        if ((Get-Item -LiteralPath $sourceIcon).Length -le 0) { throw "Required icon is empty: $sourceIcon" }
+        Copy-Item -LiteralPath $sourceIcon -Destination $targetIcon -Force
+        $sourceHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $sourceIcon).Hash
+        $targetHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $targetIcon).Hash
+        if ($sourceHash -ne $targetHash) { throw "Icon copy verification failed for $iconName." }
+      }
+    displayName: Validate v2.1.0 metadata and sync requested icons
+
+  - bash: |
+      set -euxo pipefail
+      export MACOSX_DEPLOYMENT_TARGET=11.0
+      cd "$(Build.SourcesDirectory)/src-tauri"
+      npx --yes @tauri-apps/cli@2 build --ci --target universal-apple-darwin --bundles dmg
+    displayName: Build universal macOS DMG
+
+  - bash: |
+      set -euxo pipefail
+      bundle_root="$(Build.SourcesDirectory)/src-tauri/target/universal-apple-darwin/release/bundle"
+      stage_root="$(Build.ArtifactStagingDirectory)/macos"
+      mkdir -p "$stage_root"
+
+      app_dir=''
+      for candidate in "$bundle_root"/macos/*.app; do
+        if [ -d "$candidate" ]; then
+          app_dir="$candidate"
+          break
+        fi
+      done
+      if [ -z "$app_dir" ]; then
+        echo 'Universal .app bundle was not produced.' >&2
+        exit 1
+      fi
+
+      app_binary="$app_dir/Contents/MacOS/X-Now"
+      if [ ! -f "$app_binary" ]; then
+        echo "Expected app binary is missing: $app_binary" >&2
+        exit 1
+      fi
+      archs="$(lipo -archs "$app_binary")"
+      echo "Universal binary architectures: $archs"
+      case "$archs" in *arm64*) ;; *) echo 'arm64 slice is missing.' >&2; exit 1 ;; esac
+      case "$archs" in *x86_64*) ;; *) echo 'x86_64 slice is missing.' >&2; exit 1 ;; esac
+
+      dmg_count=0
+      for package_file in "$bundle_root"/dmg/*.dmg; do
+        if [ -f "$package_file" ]; then
+          cp "$package_file" "$stage_root/"
+          dmg_count=$((dmg_count + 1))
+        fi
+      done
+      if [ "$dmg_count" -lt 1 ]; then
+        echo 'Universal macOS DMG was not produced.' >&2
+        exit 1
+      fi
+
+      (
+        cd "$stage_root"
+        for package_file in *.dmg; do
+          shasum -a 256 "$package_file"
+        done
+      ) > "$stage_root/checksums.txt"
+    displayName: Verify both macOS architectures and stage DMG
+
+  - task: PublishPipelineArtifact@1
+    displayName: Publish macOS universal installer
+    inputs:
+      targetPath: '$(Build.ArtifactStagingDirectory)/macos'
+      artifact: macos-universal-installer
+      publishLocation: pipeline
+
+- job: package_release
+  displayName: 'Assemble v${{ parameters.version }} release download'
+  dependsOn:
+  - build_windows
+  - build_linux
+  - build_macos
+  condition: succeeded()
+  timeoutInMinutes: 30
+  pool:
+    vmImage: ubuntu-24.04
+  steps:
+  - checkout: self
+    clean: true
+
+  - download: current
+    artifact: windows-installers
+  - download: current
+    artifact: linux-installers
+  - download: current
+    artifact: macos-universal-installer
+
+  - bash: |
+      set -euxo pipefail
+      release_root="$(Build.ArtifactStagingDirectory)/x-now-v${{ parameters.version }}-release"
+      mkdir -p "$release_root/windows" "$release_root/linux" "$release_root/macos" "$release_root/branding" "$release_root/github-assets"
+
+      cp -R "$(Pipeline.Workspace)/windows-installers/." "$release_root/windows/"
+      cp -R "$(Pipeline.Workspace)/linux-installers/." "$release_root/linux/"
+      cp -R "$(Pipeline.Workspace)/macos-universal-installer/." "$release_root/macos/"
+
+      for icon_name in icon.ico icon.png icon.icns; do
+        icon_path="$(Build.SourcesDirectory)/icons/$icon_name"
+        if [ ! -s "$icon_path" ]; then
+          echo "Required release branding asset is missing: $icon_path" >&2
+          exit 1
+        fi
+        cp "$icon_path" "$release_root/branding/"
+      done
+
+      for platform_root in windows linux macos; do
+        for package_file in \
+          "$release_root/$platform_root"/*.exe \
+          "$release_root/$platform_root"/*.msi \
+          "$release_root/$platform_root"/*.AppImage \
+          "$release_root/$platform_root"/*.deb \
+          "$release_root/$platform_root"/*.rpm \
+          "$release_root/$platform_root"/*.dmg; do
+          if [ -f "$package_file" ]; then
+            cp "$package_file" "$release_root/github-assets/"
+          fi
+        done
+      done
+
+      {
+        echo "X-Now v${{ parameters.version }}"
+        echo "Azure DevOps build: $(Build.BuildId)"
+        echo "Source commit: $(Build.SourceVersion)"
+        echo 'Packages: Windows x64, Linux x64, macOS universal (arm64 + x86_64)'
+        echo 'Signing: unsigned build; platform trust warnings may appear'
+      } > "$release_root/BUILD_INFO.txt"
+
+      checksum_file="$release_root/SHA256SUMS.txt"
+      : > "$checksum_file"
+      for platform_root in windows linux macos; do
+        while IFS= read -r package_file; do
+          relative_path="${package_file#"$release_root"/}"
+          package_hash="$(sha256sum -- "$package_file" | awk '{print $1}')"
+          printf '%s  %s\n' "$package_hash" "$relative_path" >> "$checksum_file"
+        done < <(
+          find "$release_root/$platform_root" -type f \( \
+            -name '*.exe' -o -name '*.msi' -o -name '*.AppImage' -o \
+            -name '*.deb' -o -name '*.rpm' -o -name '*.dmg' \
+          \) -print | sort
+        )
+      done
+
+      github_checksum_file="$release_root/github-assets/SHA256SUMS.txt"
+      : > "$github_checksum_file"
+      for package_file in \
+        "$release_root/github-assets"/*.exe \
+        "$release_root/github-assets"/*.msi \
+        "$release_root/github-assets"/*.AppImage \
+        "$release_root/github-assets"/*.deb \
+        "$release_root/github-assets"/*.rpm \
+        "$release_root/github-assets"/*.dmg; do
+        if [ -f "$package_file" ]; then
+          package_hash="$(sha256sum -- "$package_file" | awk '{print $1}')"
+          printf '%s  %s\n' "$package_hash" "$(basename "$package_file")" >> "$github_checksum_file"
+        fi
+      done
+
+      if [ ! -s "$checksum_file" ]; then
+        echo 'The combined release contains no installer packages.' >&2
+        exit 1
+      fi
+      if [ ! -s "$github_checksum_file" ]; then
+        echo 'The GitHub upload folder contains no installer packages.' >&2
+        exit 1
+      fi
+      echo 'Final release artifact contents:'
+      find "$release_root" -type f -print | sort
+    displayName: Assemble and checksum combined release artifact
+
+  - task: PublishPipelineArtifact@1
+    displayName: Publish combined v2.1.0 release artifact
+    inputs:
+      targetPath: '$(Build.ArtifactStagingDirectory)/x-now-v${{ parameters.version }}-release'
+      artifact: 'x-now-v${{ parameters.version }}-release'
+      publishLocation: pipeline

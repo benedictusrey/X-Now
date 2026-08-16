@@ -8,11 +8,14 @@ All notable changes to **X-Now** are documented here. The format follows [Keep a
 
 ### 🎨 Changed
 - **Readable composer & sidebar text**: the post/reply composer ("What's happening?") now types at **15px** instead of X's ~19px default, and the left sidebar menu (Home, Explore, …) reads at **17px** — including the **"More" button, its flyout and X's dropdown menus** — injected page CSS, no X settings touched.
-- **Structured native tray menu**: the tray **right-click** now opens a clean native context menu — **Show/Hide, Navigate ▸ (Home/Explore/Notifications/Messages/Bookmarks/Profile), Window ▸ (Always on top, Launch on Startup, Refresh), View ▸ (Zoom in/out/reset, Developer tools), Tools ▸ (Copy URL, Open in browser, Compact memory, Cobalt downloader), How to ▸, About, Quit** — with native hover flyouts for every submenu. Every clickable item carries a **16×16 white glyph** (window, home, bell, envelope, star, wrench-style tools, info, X…), giving the menu the same icon treatment as the classic v2.0.0 tray menu while staying compact. Native menus behave identically on **Windows, Linux and macOS** (unlike a custom popup window), and checkmarks stay in sync with Always-on-top / Launch-on-Startup.
-- **New X-Now branding**: the new icon set (`icons_new`) is applied on **all layers** — window/taskbar/task manager (embedded .ico), tray icon, the About card — replacing the old bird mark. The **.exe launcher and the installer now embed the exact `icons_new/icon.ico`** (byte-identical copy into the bundle icon set).
-- **Redesigned About X-Now**: a sleeker, more compact card showing the **new brand icon**, with a feature grid (Save media / Tray controls / Quiet minimize / Links open out), the live version, and readable font sizes throughout.
+- **Structured native tray menu**: the tray **right-click** now opens a clean native context menu with **Show/Hide, Navigate, Window, View, Tools, How to, About, and Quit**. Native hover flyouts organize the actions on **Windows, Linux, and macOS**. Every clickable item carries a **16×16 white glyph**, and checkmarks stay in sync with Always-on-top and Launch-on-Startup.
+- **New X-Now branding**: the refreshed icon set in `icons/` is applied across the **window, taskbar, tray icon, About card, application launcher, and Windows installers**, replacing the old bird mark. The bundle uses the repository's `icons/icon.ico` for the Windows installer and uninstaller.
+- **Redesigned About X-Now**: a sleeker, more compact card showing the **new brand icon**, current version, author credit, and a feature grid for Save media, Tray controls, Quiet minimize, and Links open out.
 
-- **Windows installers with the X-Now branding**: `tauri build` now produces the NSIS `.exe` and WiX `.msi` installers in `installers/`, and the **NSIS installer/uninstaller icons are the new brand** (`bundle.windows.nsis.installerIcon`/`uninstallerIcon` — previously NSIS fell back to its default gray icon). The MSI's add/remove-programs icon uses the same embedded brand `.ico`.
+- **Windows installers with the X-Now branding**: `tauri build` now produces the NSIS `.exe` and WiX `.msi` installers with `icons/icon.ico` configured for the NSIS installer and uninstaller. The Windows bundle uses the same brand icon in its package metadata.
+
+### 📦 Release engineering
+- The manual `azure-pipelines.yml` build validates the v2.1.0 version in `tauri.conf.json`, `Cargo.toml`, and `Cargo.lock`, syncs the root icon assets into the Tauri bundle, builds Windows x64, Linux x64, and one macOS universal installer, checks the expected package types, and publishes SHA-256 manifests for both Azure download and GitHub upload.
 
 
 ### 🔧 Fixed

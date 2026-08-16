@@ -8,7 +8,8 @@ The security, privacy, and integrity of **X-Now** and its users are top prioriti
 
 | Version | Supported | Security Maintenance |
 | :--- | :---: | :--- |
-| **`2.0.x`** | ✅ | Active security support & bug fixes (current release) |
+| **`2.1.x`** | ✅ | Active security support and bug fixes (current release line) |
+| `2.0.x` | ⚠️ | Previous release line; update to v2.1.x when possible |
 | `1.0.x` – `1.1.x` | ⚠️ | Legacy — maintained only for critical security issues |
 | `< 1.0.0` | ❌ | Pre-release / superseded versions |
 
@@ -36,7 +37,11 @@ Media saving is opt-in and local. Downloads go only to `Downloads\X-Now` (or you
 
 - Rust + Tauri v2 with a minimal dependency set; the only Windows-specific dependency is target-gated and used solely for the audio-session mute guarantee.
 - Repository checks validate JavaScript syntax, Rust formatting, dependency compilation, and package generation.
-- Release builds are reproducible through the GitHub Actions pipeline (`release.yml`), one job per platform with native installers, and ship with SHA-256 `checksums.txt`.
+- Release builds are checked through the Azure Pipelines configuration (`azure-pipelines.yml`) and published through the private GitHub Release. The v2.1.0 Azure artifact ships native installers with SHA-256 `SHA256SUMS.txt` manifests.
+
+## Release authenticity
+
+The current v2.1.0 Azure packages are unsigned. Windows SmartScreen and macOS Gatekeeper can show warnings for that reason. Download packages from the project's GitHub Release, compare their hashes with `SHA256SUMS.txt`, and install only files whose hashes match. Signing and notarization will be added when release certificates are configured.
 
 ## 📋 What to Treat as Private
 

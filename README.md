@@ -10,13 +10,13 @@
 </p>
 
 <p align="center">
-  <strong>🎉 X-NOW RELEASE: v2.1.0 IS NOW LIVE! 🎉</strong><br/>
-  <em>After meticulous development, the latest official build of X-Now is ready for deployment.</em>
+  <strong>🚀 X-NOW v2.1.0</strong><br/>
+  <em>Readable typography, a structured native tray, and consistent new branding.</em>
 </p>
 
 <p align="center">
-  <strong>What's new in v2.1.0</strong><br/>
-  <em>Composer text at 15px &amp; sidebar at 17px · compact grouped tray menu · redesigned About card · Windows audio-session mute guarantee</em>
+  <strong>v2.1.0 highlights</strong><br/>
+  <em>15px composer text · 17px sidebar text · grouped native tray actions · branded icons · redesigned About card</em>
 </p>
 
 <p align="center">
@@ -47,6 +47,7 @@
 | 💾 **One-click media saving** | Right-click images (full resolution) and videos — straight to `Downloads\X-Now` |
 | 🔗 **Links go where they belong** | One click on any outside link → your default browser opens it |
 | 🔐 **Seamless in-app login** | Google & Apple sign-in popups handled inside the app, auto-closed after login |
+| 🎨 **Consistent X-Now identity** | The refreshed icon set appears in the window, tray, About card, launcher, and Windows installers |
 | ⚡ **Feather-light** | A single ≈7 MB binary — no Electron, no Node, no bloat |
 
 ### 🌟 Why Choose X-Now?
@@ -74,11 +75,35 @@ Why open a browser tab when you can command everything from your taskbar? X-Now 
 
 ---
 
+## v2.1.0 Highlights
+
+X-Now v2.1.0 refines the desktop shell around the official X website. Your X account, posts, and page controls remain inside X's own web experience.
+
+### Readable page typography
+
+- The post composer and reply boxes use **15px** text.
+- The primary sidebar, the **More** button, its flyout, and X menu labels use **17px** text.
+- X-Now applies these styles inside its window. It does not change your X account settings.
+
+### Structured native tray controls
+
+The tray menu now uses native submenus for **Navigate**, **Window**, **View**, and **Tools**. The menu also includes **Show / Hide X-Now**, **How to X-Now**, **About X-Now**, and **Quit X-Now**. Each action uses a purpose-made 16×16 icon, and the **Always on top** and **Launch on Startup** options display checkmarks that track their actual state.
+
+### Refreshed branding
+
+The new icon set provides purpose-made renders for the window, taskbar, tray, About card, application launcher, and Windows installer packages. The Windows NSIS installer and uninstaller use the X-Now `.ico` asset instead of a generic installer icon.
+
+### Redesigned About card
+
+The in-app About card uses the X-Now icon, current version, author credit, and a compact feature grid covering media saving, tray controls, quiet minimize, and external-link handling. It opens inside the X window, so the signed-in session remains in place.
+
+---
+
 ## ⚔️ X-Now vs X Native Web
 
 Same X, same account, same feed — but the *wrapper around it* is where the desktop magic lives. X-Now keeps the official X experience and adds the OS integration a browser tab can't offer:
 
-| Capability | 🐦 X-Now v2.1.0 | 🌐 X Web (browser tab) |
+| Capability | ✕ X-Now v2.1.0 | 🌐 X Web (browser tab) |
 |---|---|---|
 | **Window & tray presence** | Dedicated native window + system-tray icon with feed shortcuts | One tab among dozens, no app identity |
 | **Close button** | Closes to the tray — app keeps running, media pauses instantly | Closes the tab and the whole browser stays heavy |
@@ -101,18 +126,18 @@ Same X, same account, same feed — but the *wrapper around it* is where the des
 
 ### Use the Release Builds
 
-We provide cross-platform builds for **Windows, macOS, and Linux** through GitHub Actions. Head to the [Releases](https://github.com/benedictusrey/X-Now/releases) page to download the latest version for your system.
+Release assets are published on the [GitHub Releases](https://github.com/benedictusrey/X-Now/releases) page after the cross-platform build has passed its checks. The v2.1.0 Azure pipeline produces one combined download containing the installers and SHA-256 manifests.
 
 | Platform | Installer | Notes |
 |---|---|---|
-| **Windows 10/11** | `.exe` (NSIS) or `.msi` (WiX) | Requires Edge WebView2 Runtime |
-| **macOS** | `.dmg` (Apple Silicon + Intel) | Requires macOS 10.15+ |
-| **Linux** | `.AppImage` / `.deb` / `.rpm` | Requires libwebkit2gtk-4.1 |
+| **Windows 10/11** | x64 `.exe` (NSIS) or `.msi` (WiX) | Requires Edge WebView2 Runtime |
+| **macOS** | One universal `.dmg` for Apple Silicon and Intel | macOS 11 or newer |
+| **Linux** | x64 `.AppImage` / `.deb` / `.rpm` | Requires WebKitGTK 4.1 runtime |
 
 ### Windows
 
 1. Install the [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) if not already present.
-2. Run `X-Now_2.1.0_x64-setup.exe` (or the `.msi` variant).
+2. Run the downloaded `.exe` NSIS installer or the `.msi` package.
 3. Sign in through the official X page shown inside the app.
 4. Reopen **X-Now** later to resume your existing session automatically.
 5. Use the system-tray icon for navigation, media saving, and app controls.
@@ -121,14 +146,14 @@ The login session is stored by the WebView2 application data folder on the local
 
 ### macOS
 
-1. Open the downloaded `.dmg` and drag **X-Now** to your Applications folder.
-2. On first launch, right-click and choose **Open** to bypass Gatekeeper (unsigned build).
+1. Open the downloaded universal `.dmg` and drag **X-Now** to your Applications folder.
+2. On first launch, right-click and choose **Open** to approve the unsigned build in Gatekeeper.
 3. Sign in through the X page that appears inside the app.
 
 ### Linux
 
-1. Make the AppImage executable: `chmod +x X-Now_2.1.0_amd64.AppImage`
-2. Run it: `./X-Now_2.1.0_amd64.AppImage`
+1. Make the AppImage executable: `chmod +x *.AppImage`
+2. Run it: `./*.AppImage`
 3. Sign in through the X page inside the app.
 
 > **Tip:** On some Linux distributions you may need `libwebkit2gtk-4.1` installed: `sudo apt install libwebkit2gtk-4.1-dev`
@@ -185,7 +210,7 @@ The same hand-off is one tray click away: **Open Cobalt video downloader**.
 
 ## Requirements
 
-- **Windows** 10/11 (64-bit) with [Edge WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/), **macOS** 10.15+, or **Linux** (x64/arm64).
+- **Windows** 10/11 (64-bit) with [Edge WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/), **macOS** 11+ for the universal build, or **Linux** x64 for the published installers.
 - Internet access to load X and any external link.
 - A signed-in X session for account-specific content.
 
@@ -201,14 +226,14 @@ node --check frontend/x-tools.js
 cd src-tauri
 cargo fmt --all -- --check
 cargo check
-cargo tauri build --ci
+npx --yes @tauri-apps/cli@2 build --ci
 ```
 
 To keep build products outside the source tree on Windows:
 
 ```powershell
 $env:CARGO_TARGET_DIR = 'C:\path\to\x-now-build-target'
-cargo tauri build --ci --no-sign
+npx --yes @tauri-apps/cli@2 build --ci --no-sign
 ```
 
 ---
@@ -248,6 +273,7 @@ The repository checks validate JavaScript syntax, Rust formatting, Rust dependen
 | [CHANGELOG.md](CHANGELOG.md) | Full version history, one entry per release |
 | [SECURITY.md](SECURITY.md) | Supported versions, security & privacy guarantees |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Build from source on Windows, macOS & Linux; how to contribute |
+| [docs/RELEASE_PIPELINE.md](docs/RELEASE_PIPELINE.md) | Run Azure Pipelines, download the combined artifact, and publish GitHub release assets |
 
 ---
 

@@ -1,121 +1,128 @@
-# 🚀 Release Notes — X-Now 2.1.0
+# Release Notes: X-Now v2.1.0
 
 <p align="center">
-  <img src="icons/icon.png" width="96" height="96" alt="X-Now Icon"><br>
-  <strong>X-Now v2.1.0 — The Polish Release</strong><br>
-  <em>Smaller type, a tidier tray, and an About card worth reading.</em>
+  <img src="icons/icon.png" width="96" height="96" alt="X-Now icon"><br>
+  <strong>X-Now v2.1.0</strong><br>
+  <em>Readable typography, a structured native tray, and a consistent desktop identity.</em>
 </p>
 
----
+X-Now v2.1.0 refines the native desktop layer around the official X website. The release keeps the v2.0.0 tray, media, audio, login, and external-link features while improving the parts you see and use every day.
 
-## ✨ What's New in 2.1.0
+## What's new
 
-### ✍️ Composer & sidebar typography
-- The **"What's happening?"** composer and reply boxes now type at **15px** — a denser, more native feel instead of X's bulky ~19px default.
-- The **left sidebar menu** (Home, Explore, Notifications, Messages, Bookmarks, Profile) reads at **17px** — noticeably better readability.
-- Both are page-level CSS overrides injected by X-Now; your X settings are untouched.
+### Readable typography inside X
 
-### 🖱️ Compact tray menu
-- Related actions are grouped into **Zoom**, **Current page** and **Tools** submenus.
-- **Launch on Startup** is now a standard checkmark toggle instead of a text swap.
-- The "How to X-Now" tips are short, scannable one-liners, and redundant separators are gone.
+- The post composer and reply boxes use **15px** text.
+- The primary sidebar, the **More** button, its flyout, and X menu labels use **17px** text.
+- The styles apply inside X-Now's window and do not change your X account settings.
+- Unread-count badges keep their smaller size, so the larger navigation labels do not overwhelm status indicators.
 
-### 🎨 Redesigned About X-Now
-- The bird icon is gone — replaced by a clean CSS "X" monogram.
-- A feature grid (Save media · Tray controls · Quiet minimize · Links open out), the live version, and readable font sizes make the card informative at a glance.
+### A clearer native tray menu
 
----
+The tray menu now groups related actions into native submenus:
 
-# 🚀 Release Notes — X-Now 2.0.0
+- **Navigate**: Home feed, Explore, Notifications, Messages, Bookmarks, and My profile.
+- **Window**: Always on top, Launch on Startup, and Refresh.
+- **View**: Zoom controls and Developer tools.
+- **Tools**: Copy the current URL, open the current page in the default browser, compact memory and cache, and open the Cobalt downloader guide.
+- **How to X-Now**: short usage reminders for media saving, links, the Escape key, and native playback controls.
 
-<p align="center">
-  <img src="icons/icon.png" width="96" height="96" alt="X-Now Icon"><br>
-  <strong>X-Now v2.0.0 — The Desktop-First Milestone</strong><br>
-  <em>Everything since v1.1.0, wrapped into the X desktop experience it should have been.</em>
-</p>
+The menu also provides **Show / Hide X-Now**, **About X-Now**, and **Quit X-Now**. Every actionable item has a purpose-made 16x16 icon. **Always on top** and **Launch on Startup** use native checkmarks that follow their current state.
 
----
+### Consistent X-Now branding
 
-🎉 **X-Now 2.0.0** turns the app from *a window around X* into a true desktop citizen: close it and it keeps living in your tray; minimize it and the audio stops — guaranteed; launch it with Windows/macOS/Linux and it's ready hidden in the background. Same official X, dramatically better wrapping.
+The refreshed icon set in `icons/` now covers the application surfaces that users see:
 
----
+- Window and taskbar identity.
+- System tray identity with a purpose-made 32px render and a purpose-made 48px window render, keeping the brand sharp at common display scales.
+- About card identity using the high-resolution `icon.png`.
+- Application launcher and Windows executable identity.
+- Windows NSIS installer and uninstaller identity through `icon.ico`.
+- Native tray-menu glyphs for navigation and tools.
 
-## ✨ What's New in 2.0.0
+The release includes both `icon.ico` and `icon.png` in the Azure release artifact's `branding/` folder for reference and future packaging work.
 
-### 🖱️ Tray, minimize & audio — the desktop superpowers
-- **Close-to-tray.** The ✕ button no longer kills the app — the window hides to the system tray and **media pauses instantly**. The app keeps running, your session stays signed in, and one tray click brings it back.
-- **True pause on minimize.** Video audio stops the moment the window hides, through a **three-layer guarantee**: page-side pause, a Windows **OS-level audio-session mute** (even if the page misbehaves), and a watchdog that re-checks the real window state every 800 ms. Restore resumes exactly where you left off — at the same 50% volume — following X's own rules (only on-screen media is resumed, never stale off-screen elements).
-- **Show / Hide tray toggle.** The tray icon and the new **"Show / Hide X-Now"** menu item restore the app whenever it is minimized, hidden, or unfocused — and hide it (pausing first) only when it's visible and focused.
-- **🚀 Launch on Startup.** New tray toggle. When started by the OS it launches **hidden to the tray** — no window popping over your work.
-- **Stale-silence fix.** Windows can persist an old audio-session mute across restarts; a startup watchdog clears it automatically, so a fresh launch is never mysteriously silent (verified with an OS audio peak meter).
+### A more useful About card
 
-### 💾 One-click media saving
-- **Silent downloads**: `curl.exe` now runs with `CREATE_NO_WINDOW` — no CMD window flashes during a download.
-- **Download toast (bottom-right)**: a dark, rounded notification card slides in at the bottom-right corner — a spinner while the download runs, then **"Saved image/video ✓"** with the `Downloads\X-Now` folder, or a red ✕ card with the reason if it fails. Auto-dismisses after ~4.5 s.
-- **Videos always download the RIGHT post**: a video resolves only from the clicked post — its own element URL, the post page's video URLs (`og:video` / `twitter:player:stream` / embedded JSON), or resources pinned to it via the poster's media ID. Page-wide shortcuts are never taken (they once produced X's own UI animation instead of the post), post links like `/status/123/photo/1` are normalized to the clean status page, and a stream X keeps fully hidden hands off to **Cobalt with the correct post link**. Direct MP4 saves skip the Cobalt round-trip entirely — much faster.
-- **Fixed the real blocker**: Tauri's ACL now explicitly grants the four native commands to the x.com page (`remote` capability + declared commands in build.rs). Previously every native call was rejected with "Command … not allowed by ACL" — image saving fell through every layer, and videos always had to take the Cobalt detour. Image saving now works end-to-end, and videos download **directly** whenever X exposes a direct MP4 URL — no Cobalt round-trip, much faster.
-- Right-click any **image** and save it straight to `Downloads\X-Now` — X-Now resolves the **full-resolution original** (full-resolution variants → the element's own URL → the post page's `og:image` → loaded CDN resources) and delivers it through a native curl downloader or a CORS-safe in-page fetch.
-- Right-click any **video** — X-Now tries a direct MP4 save from X's own CDN first; when X only exposes a streamed `blob:` URL, it falls back to the proven IG-Now hand-off: post link copied, `Downloads\X-Now` pre-created, and [Cobalt](https://cobalt.tools/) opened with the link pre-filled. The same hand-off is one tray click away (**Open Cobalt video downloader**).
+**About X-Now** opens as an overlay inside the X window. It shows the X-Now icon, the current version, the Rust and Tauri foundation, the author credit, and a compact feature grid for:
 
-### 🔗 Links go where they belong
-- **Click any external link** (outside x.com, including `t.co` redirects) — X-Now hands it to your default browser, which opens it automatically as the system handler. X's own posts, profiles and notifications stay in-app.
+- Media saving.
+- Tray controls.
+- Quiet minimize.
+- External links in the default browser.
 
-### 🎨 Seamless in-app About
-- Tray → **About X-Now** now opens a polished overlay **inside the X window** — the real X-Now app icon, live version, and a **"Built with ❤️ by @benedictusrey"** credit — no separate window hop.
+The overlay does not open a second application window and does not interrupt the signed-in page.
 
-### 🔐 Seamless in-app login
-- Google & Apple sign-in popups are managed **inside the app** (dark-styled OAuth windows that auto-close the moment the token relays back to x.com) — the `postMessage` login flow never breaks, unlike a browser hand-off.
+## What v2.1.0 includes from v2.0.0
 
-### 🖥️ Titlebar with your handle
-- Once you sign in, the native titlebar reads **X-Now (@yourhandle)** — detected from X's own profile tab, no account data stored.
+X-Now v2.1.0 retains the desktop features introduced in v2.0.0:
 
-### 📦 Platform coverage
-- Release pipeline builds installers for **Windows (.exe/.msi), macOS (.dmg, Intel + Apple Silicon)** and **Linux (.AppImage/.deb/.rpm)** — each platform gets its own native installer, built in its own CI job (no universal installer).
+- Close-to-tray behavior with instant media pause.
+- Pause-on-minimize with page-side pausing, a Rust watchdog, and Windows audio-session mute protection.
+- Smart tray Show / Hide behavior and optional hidden-to-tray startup.
+- Full-resolution image saving and post-scoped video saving to `Downloads\X-Now`.
+- Direct MP4 saving when X exposes a usable URL, with a Cobalt browser hand-off when X exposes only a streamed `blob:` URL.
+- Bottom-right download status toasts and silent Windows downloads.
+- External links opened by the operating system's default browser.
+- In-app Google and Apple sign-in popups with automatic cleanup after login.
+- A titlebar that shows the signed-in X handle.
+- A persistent local WebView session with no X account database or analytics added by X-Now.
 
----
+## Installer packages
 
-## 🛤️ Everything Changed Since v1.1.0
+The v2.1.0 Azure pipeline builds native packages in separate platform jobs, then assembles one combined download.
 
-| Area | v1.1.0 (baseline) | v2.0.0 |
+| Platform | Package | Target and notes |
 |---|---|---|
-| Close button | Closed the window (app kept running only in tray) | **Closes to tray** with instant media pause |
-| Minimize | Audio could keep playing in the background | **Guaranteed pause** (page + OS audio-session mute + watchdog) |
-| Tray icon click | Only opened/launched X | **Smart toggle** — restore when hidden/minimized, hide when focused |
-| Tray menu | No Show/Hide, no autostart | **Show / Hide X-Now** + **🚀 Launch on Startup** |
-| Startup | Always opened a window | Optional **hidden-to-tray** launch via autostart |
-| About | Separate small window | **In-page overlay** with X branding |
-| Media | Browser right-click only | **Right-click save** to `Downloads\X-Now` — images at full resolution, videos always from the clicked post (direct MP4 or Cobalt hand-off), bottom-right progress toasts |
-| Audio reliability | Relied on page behavior | **OS-level session mute** + stale-mute cleanup + on-screen resume rules |
-| Source layout | `src-tauri` not in the repo (builds broke on fresh clones) | **Full Rust backend committed** — anyone can build; CI is green |
-| Docs | README only | README + Release Notes + Changelog + Security + Contributing, with per-platform guides |
+| Windows | `.exe` NSIS and `.msi` WiX | x64; Windows 10/11; Edge WebView2 Runtime |
+| macOS | One universal `.dmg` | arm64 plus x86_64; macOS 11 or newer |
+| Linux | `.AppImage`, `.deb`, and `.rpm` | x64; WebKitGTK 4.1 runtime |
+
+The pipeline validates the v2.1.0 version in `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, and `src-tauri/Cargo.lock`. It checks the expected package types, verifies both macOS slices with `lipo`, and publishes SHA-256 manifests.
+
+## Installation
+
+### Windows
+
+1. Install the [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) if Windows does not already provide it.
+2. Run the downloaded NSIS `.exe` or WiX `.msi` installer.
+3. Sign in through the official X page inside the app.
+4. Use the tray icon for navigation, media saving, zoom, memory tools, and startup behavior.
+
+### macOS
+
+1. Open the universal `.dmg`.
+2. Drag **X-Now** to Applications.
+3. On first launch, right-click the app and choose **Open**. The current unsigned build can trigger a Gatekeeper warning.
+4. Sign in through the X page inside the app.
+
+### Linux
+
+For the AppImage:
+
+```bash
+chmod +x *.AppImage
+./*.AppImage
+```
+
+For `.deb` or `.rpm`, use your distribution's package installer. The runtime needs WebKitGTK 4.1. GNOME users may also need an AppIndicator extension for tray support.
+
+## Important usage and trust notes
+
+- X-Now is not affiliated with, sponsored by, or maintained by X Corp. or Twitter, Inc.
+- X-Now handles X content inside WebView2 on Windows and WebKit on macOS and Linux.
+- Media saving uses URLs that X exposes to the page. X-Now does not bypass X access controls.
+- Downloaded media belongs to the post's author. Follow X's terms, local law, and the rights attached to the media.
+- The current Azure package is unsigned. Windows SmartScreen and macOS Gatekeeper may display trust warnings until signing and notarization are added.
+- Verify downloaded installers with the published `SHA256SUMS.txt` file before installing.
+
+## Related documentation
+
+- [README.md](README.md): product overview, feature guide, and user installation steps.
+- [CHANGELOG.md](CHANGELOG.md): version-by-version technical history.
+- [SECURITY.md](SECURITY.md): privacy model, Tauri capabilities, and vulnerability reporting.
+- [docs/RELEASE_PIPELINE.md](docs/RELEASE_PIPELINE.md): Azure DevOps setup, artifact download, and GitHub publishing steps.
 
 ---
 
-## 🖥️ Platform Notes
-
-### Windows 10 / 11
-- Installers: `X-Now_2.1.0_x64-setup.exe` (NSIS) or `X-Now_2.1.0_x64_en-US.msi` (WiX).
-- Requires the [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) (preinstalled on Windows 11).
-- Close-to-tray, OS-level audio muting, and Launch-on-Startup are all fully supported.
-
-### macOS (Apple Silicon + Intel)
-- Installers: `X-Now_2.1.0_aarch64.dmg` and `X-Now_2.1.0_x64.dmg`.
-- Requires macOS 10.15 or newer.
-- First launch of an unsigned build: **right-click the app → Open** (Gatekeeper bypass), then confirm in System Settings → Privacy & Security.
-- Close-to-tray, tray menu, and Launch-on-Startup (LaunchAgent) are fully supported.
-
-### Linux (x64)
-- Packages: `X-Now_2.1.0_amd64.AppImage` (self-contained), plus `.deb` and `.rpm` variants.
-- The AppImage needs no installation: `chmod +x X-Now_2.1.0_amd64.AppImage && ./X-Now_2.1.0_amd64.AppImage`.
-- For `.deb`/`.rpm`: install `libwebkit2gtk-4.1` first (`sudo apt install libwebkit2gtk-4.1-dev` on Debian/Ubuntu).
-- Tray integration requires a system tray/appindicator extension on GNOME.
-
----
-
-## ⚔️ Why Desktop, Not a Tab?
-
-See the full [X-Now vs X Native Web comparison](README.md#-xnow-vs-x-native-web) — tray presence, guaranteed silence on minimize, one-click media saving, always-on-top, a titlebar that knows your handle, and a ~7 MB binary instead of a full browser.
-
----
-
-*Authored and maintained with ❤️ by [@benedictusrey](https://github.com/benedictusrey)*
+Authored and maintained by [@benedictusrey](https://github.com/benedictusrey).

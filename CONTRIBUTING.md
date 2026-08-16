@@ -18,15 +18,22 @@ Thanks for your interest in **X-Now**! This project is a focused, dependency-lig
 ### macOS (Apple Silicon or Intel)
 - **Xcode Command Line Tools**: `xcode-select --install`
 - Optional: Xcode from the App Store (needed for full signing/notarization workflows)
-- macOS 10.15+
+- macOS 11+ for the universal v2.1.0 release build
 
 ### Linux (x64)
 ```bash
 sudo apt update && sudo apt install -y \
+  build-essential \
+  curl \
+  wget \
+  file \
+  libssl-dev \
+  libxdo-dev \
   libwebkit2gtk-4.1-dev \
   libayatana-appindicator3-dev \
   librsvg2-dev \
-  patchelf
+  patchelf \
+  rpm
 ```
 - Tray support on GNOME needs an appindicator extension (e.g. *AppIndicator and KStatusNotifierItem Support*).
 
@@ -46,7 +53,9 @@ X-Now/
 │   ├── capabilities/    # Tauri permission capabilities
 │   └── tauri.conf.json  # App config (product name, version, bundle)
 ├── docs/assets/         # README showcase screenshots
-├── .github/workflows/release.yml  # Cross-platform release pipeline
+├── azure-pipelines.yml      # Manual v2.1.0 multi-platform artifact build
+├── docs/RELEASE_PIPELINE.md  # Azure and GitHub publishing guide
+├── icons/                    # Bundle, tray, menu, and branding assets
 └── README.md, RELEASE_NOTES.md, CHANGELOG.md, SECURITY.md
 ```
 
@@ -72,8 +81,8 @@ cargo check
 cargo build --release
 # Windows output: src-tauri/target/release/X-Now.exe
 
-# 4. Installers (optional — needs the Tauri CLI)
-cargo tauri build --ci
+# 4. Installers (optional — npx downloads the Tauri CLI)
+npx --yes @tauri-apps/cli@2 build --ci
 ```
 
 > **Windows note:** keep the build target inside the repo (`src-tauri/target/` is gitignored). On other shells, pass Windows-style paths to native tools (MSYS `/c/...` paths break Node/cargo).
@@ -120,8 +129,9 @@ node verify-xnow-helpers.js
 
 1. Bump the version in `src-tauri/Cargo.toml` + `src-tauri/tauri.conf.json` (and docs), build, and update `CHANGELOG.md` / `RELEASE_NOTES.md` / `README.md`.
 2. Commit and push to `main`.
-3. Push a version tag: `git tag v2.1.0 && git push origin v2.1.0` — the `release.yml` workflow builds **Windows, macOS and Linux** in parallel (each platform in its own job with its own native installers) and uploads them to a draft GitHub Release.
-4. Review the draft release, then **Publish** it.
+3. Push the final commit and run `azure-pipelines.yml` manually with the matching version. The pipeline builds Windows x64, Linux x64, and one universal macOS DMG, then publishes a combined artifact with a `github-assets/` folder.
+4. Verify the SHA-256 manifest and perform one manual smoke test on each available platform.
+5. Create the matching private GitHub Release, upload the files from `github-assets/`, and publish it after review. The Azure pipeline does not create or move tags.
 
 ---
 
