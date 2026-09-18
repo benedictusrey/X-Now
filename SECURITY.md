@@ -37,11 +37,11 @@ Media saving is opt-in and local. Downloads go only to `Downloads\X-Now` (or you
 
 - Rust + Tauri v2 with a minimal dependency set; the only Windows-specific dependency is target-gated and used solely for the audio-session mute guarantee.
 - Repository checks validate JavaScript syntax, Rust formatting, dependency compilation, and package generation.
-- Release builds are checked through the Azure Pipelines configuration (`azure-pipelines.yml`) and published through the private GitHub Release. The v2.1.0 Azure artifact ships native installers with SHA-256 `SHA256SUMS.txt` manifests.
+- Release builds are built through GitHub Actions (`.github/workflows/release.yml`) and published through GitHub Releases. Each release artifact ships native installers with verified SHA-256 (`SHA256SUMS.txt`) manifests.
 
 ## Release authenticity
 
-The current v2.1.0 Azure packages are unsigned. Windows SmartScreen and macOS Gatekeeper can show warnings for that reason. Download packages from the project's GitHub Release, compare their hashes with `SHA256SUMS.txt`, and install only files whose hashes match. Signing and notarization will be added when release certificates are configured.
+The current v2.1.0 release packages are unsigned. Windows SmartScreen and macOS Gatekeeper can show warnings for that reason. Download packages from the project's official GitHub Release, compare their hashes with `SHA256SUMS.txt`, and install only files whose hashes match. Code signing and notarization will be added when release certificates are configured.
 
 ## 📋 What to Treat as Private
 

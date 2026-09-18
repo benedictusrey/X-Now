@@ -26,3 +26,6 @@ Thumbs.db
 
 # Freebuff agent workspace (local tooling, never committed)
 /.freebuff/
+
+# Known-good release snapshots (local rollback reference, never committed)
+/backup/

@@ -77,25 +77,49 @@ Why open a browser tab when you can command everything from your taskbar? X-Now 
 
 ## v2.1.0 Highlights
 
-X-Now v2.1.0 refines the desktop shell around the official X website. Your X account, posts, and page controls remain inside X's own web experience.
+X-Now v2.1.0 brings a major leap forward in rendering stability, compositor smoothness, typography, tray architecture, and visual identity while maintaining full feature parity with v2.0.0.
 
-### Readable page typography
+### 🛡️ Rock-solid rendering stability
+- **Video Mount Guard**: Solves the jarring black flash gap when scrolling through video-heavy feeds. X's player chrome mounts black for ~3 frames before media paints; the mount guard hides unpainted players until the first video frame decodes (`data-xnow-mount-wait`).
+- **Theme-Adaptive Native Background (`XNOWBG`)**: Synchronizes the WebView2 window background color with X's computed theme at runtime. Completely eliminates dark flash bands on light theme and white flashes on dark theme during scrolling and window restores.
+- **Decoupled DirectComposition Overlays**: Prevents video overlay planes from lagging the window compositor and producing detached black bands during fast scrolling (`--disable-direct-composition-video-overlays`).
+- **Occlusion Tracker Disabled**: Suppresses Chromium's `CalculateNativeWinOcclusion`, preventing the window surface from bleaching white during intense video churn.
+- **Event-Driven Watchdog & Idle Efficiency**: Replaced fixed 800ms polling with event-driven condvar wakeups and adaptive idle route polling (1s → 5s → 15s → 30s), cutting OS wakeups by ~6× and saving battery while hidden in the tray.
 
-- The post composer and reply boxes use **15px** text.
-- The primary sidebar, the **More** button, its flyout, and X menu labels use **17px** text.
-- X-Now applies these styles inside its window. It does not change your X account settings.
+### ✍️ Curated desktop typography
+- The post composer and reply boxes type at **15px** (down from X's ~19px default).
+- The primary sidebar, the **More** button, its flyout, and X dropdown menus read at **17px**.
+- Applied cleanly via in-page styling without altering your remote X account settings.
 
-### Structured native tray controls
+### 🖱️ Structured native tray controls
+- Native context submenus for **Navigate ▸**, **Window ▸**, **View ▸**, **Tools ▸**, and **How to ▸**, alongside **Show / Hide**, **About**, and **Quit**.
+- Every clickable action carries a crisp **16×16 white icon glyph**.
+- **Native engine zoom** (`set_zoom`, 100%–300% tracked in Rust) replaces the old CSS zoom hack, preventing misplaced overlays and detached video layers.
+- Checkmarks dynamically mirror live state for **Always on top** and **Launch on Startup**.
 
-The tray menu now uses native submenus for **Navigate**, **Window**, **View**, and **Tools**. The menu also includes **Show / Hide X-Now**, **How to X-Now**, **About X-Now**, and **Quit X-Now**. Each action uses a purpose-made 16×16 icon, and the **Always on top** and **Launch on Startup** options display checkmarks that track their actual state.
+### 🎨 Refreshed branding & modern About card
+- Purpose-made icon renders for every surface: **32px tray icon**, **48px window icon**, application launcher, and Windows installer packages.
+- Redesigned **About X-Now** overlay featuring the HD brand icon (embedded base64 data URI), live version tag, author credit, and two-column feature chips.
 
-### Refreshed branding
+---
 
-The new icon set provides purpose-made renders for the window, taskbar, tray, About card, application launcher, and Windows installer packages. The Windows NSIS installer and uninstaller use the X-Now `.ico` asset instead of a generic installer icon.
+## 📊 Comprehensive Comparison: v2.1.0 vs v2.0.0
 
-### Redesigned About card
-
-The in-app About card uses the X-Now icon, current version, author credit, and a compact feature grid covering media saving, tray controls, quiet minimize, and external-link handling. It opens inside the X window, so the signed-in session remains in place.
+| Subsystem / Capability | X-Now v2.0.0 | X-Now v2.1.0 (Latest) | Real-World Impact |
+|---|---|---|---|
+| **Video Mount Transition** | Black player gap (~3 frames) flashed on every video post while scrolling | **Video Mount Guard** hides unpainted player chrome until first frame renders | Eliminates the jarring black flash during timeline scrolling |
+| **Compositor Background** | Hardcoded dark background (`#0f1419`) | **Theme-Adaptive Background (`XNOWBG`)** syncs native background to X theme dynamically | No dark flash bands on light theme; seamless match in all modes |
+| **GPU Video Overlays** | DirectComposition overlay planes enabled (detached on geometry changes) | **DirectComposition Video Overlays Disabled** (`--disable-direct-composition-video-overlays`) | Eliminates detached black bands and compositor stutter during fast scroll |
+| **Window Occlusion** | Native-window occlusion tracker active (could bleach window on video churn) | **Occlusion Tracking Disabled** (`CalculateNativeWinOcclusion`) | Prevents bleached/white window surface after heavy media sessions |
+| **Watchdog & Resource Polling** | Continuous 800ms fast polling loop on watchdog thread | **Event-Driven Condvar Wakeups** + adaptive idle route poll (1s → 5s → 15s → 30s) | Up to 6× fewer wakeups; saves CPU & battery while minimized in tray |
+| **Typography & Readability** | Stock X sizes (19px composer, varying sidebar item sizes) | **Curated Desktop Typography** (15px composer, 17px sidebar, flyout, and menu labels) | Balanced, desktop-proportioned readability without altering account settings |
+| **Tray Menu Architecture** | Flat menu list with Unicode emojis | **Structured Native Submenus** (`Navigate ▸`, `Window ▸`, `View ▸`, `Tools ▸`, `How to ▸`) | Cleaner desktop workflow with native hover flyouts on Win/Mac/Linux |
+| **Tray Icons & Indicators** | Text-only with emojis; manual checkmarks | **16×16 White Icon Glyphs** on all actions; native live-state checkmarks | Clean, elegant desktop aesthetic with synchronized toggle state |
+| **Page & Window Zoom** | `document.body.style.zoom` CSS hack (broke fixed overlays & video layers) | **Native Engine Zoom** (`set_zoom`, 100%–300% tracked in Rust) | True engine-level scaling without layout desynchronization |
+| **Branding & Visual Assets** | Legacy bird logo; single low-res icon downscaled by OS (blurry) | **Unified Multi-Scale HD Branding** (32px tray, 48px window, NSIS, multi-res ICNS) | Pixel-perfect clarity across all DPI scales and OS taskbars |
+| **About Card Experience** | Basic in-page overlay with legacy logo | **Redesigned Modern Card** with brand icon data URI and 2-column feature chips | Informative, polished presentation without leaving the signed-in page |
+| **Runtime Diagnostics & Bisect** | Fixed configuration, no runtime toggles | **5 CLI Flags & Env Overrides** (`--no-occlusion-fix`, `--no-gpu-video-overlays-fix`, etc.) | Instant troubleshooting and bisecting without rebuilding |
+| **CI / CD Pipeline** | Platform-specific manual builds | **Unified GitHub Actions Pipeline** with universal macOS DMG & SHA-256 verification | Fast, automated, cross-platform builds without wasting runner minutes |
 
 ---
 
@@ -126,13 +150,13 @@ Same X, same account, same feed — but the *wrapper around it* is where the des
 
 ### Use the Release Builds
 
-Release assets are published on the [GitHub Releases](https://github.com/benedictusrey/X-Now/releases) page after the cross-platform build has passed its checks. The v2.1.0 Azure pipeline produces one combined download containing the installers and SHA-256 manifests.
+Release assets are published on the [GitHub Releases](https://github.com/benedictusrey/X-Now/releases) page with verified SHA-256 manifests:
 
-| Platform | Installer | Notes |
+| Platform | Installer Packages | Notes |
 |---|---|---|
-| **Windows 10/11** | x64 `.exe` (NSIS) or `.msi` (WiX) | Requires Edge WebView2 Runtime |
-| **macOS** | One universal `.dmg` for Apple Silicon and Intel | macOS 11 or newer |
-| **Linux** | x64 `.AppImage` / `.deb` / `.rpm` | Requires WebKitGTK 4.1 runtime |
+| **Windows 10/11** | NSIS `.exe` setup, WiX `.msi`, and portable `.exe` | Requires Edge WebView2 Runtime |
+| **macOS** | Universal `.dmg` (Apple Silicon `arm64` + Intel `x86_64`) | macOS 11 or newer, native on all Macs |
+| **Linux** | Standalone `.AppImage`, Debian `.deb`, Fedora/RHEL `.rpm` | Requires WebKitGTK 4.1 runtime |
 
 ### Windows
 
@@ -272,14 +296,51 @@ The repository checks validate JavaScript syntax, Rust formatting, Rust dependen
 | [RELEASE_NOTES.md](RELEASE_NOTES.md) | What's new in v2.1.0 — everything changed since v2.0.0, platform by platform |
 | [CHANGELOG.md](CHANGELOG.md) | Full version history, one entry per release |
 | [SECURITY.md](SECURITY.md) | Supported versions, security & privacy guarantees |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | Build from source on Windows, macOS & Linux; how to contribute |
-| [docs/RELEASE_PIPELINE.md](docs/RELEASE_PIPELINE.md) | Run Azure Pipelines, download the combined artifact, and publish GitHub release assets |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Welcoming contribution guide, architectural invariants, and Pull Request steps |
+| [AUTHORS.md](AUTHORS.md) | Authorship declaration, intellectual integrity, and anti-rebranding policy |
+| [AGENTS.md](AGENTS.md) | Provenance, anti-rebranding directives, and locked architectural pillars for AI agents |
+| [docs/RELEASE_PIPELINE.md](docs/RELEASE_PIPELINE.md) | GitHub Actions workflow guide, cross-platform build matrix, and release steps |
+| [docs/GITHUB_DESKTOP_PUBLISHING.md](docs/GITHUB_DESKTOP_PUBLISHING.md) | Step-by-step walkthrough for publishing to GitHub using GitHub Desktop |
+| [docs/BUILD_AND_FIXES.md](docs/BUILD_AND_FIXES.md) | **Mandatory reading before touching `lib.rs`, `tray.rs`, or `frontend/x-tools.js`** — every rendering fix (root cause → mechanism → bisect flag), exact build sequence, verification chain, and known gotchas |
+| [backup/README.md](backup/README.md) | 🔒 The protected known-good snapshot of this exact verified release — restore point for anti-regression; read its rules before editing anything it covers |
+
+---
+
+## Rendering Workarounds & Diagnostics (per launch)
+
+> Deep dive: **`docs/BUILD_AND_FIXES.md`** documents every rendering fix (root cause → mechanism → bisect flag), the full build sequence, verification chain, and known gotchas. Read it before changing `lib.rs`, `tray.rs`, or `frontend/x-tools.js`.
+
+X-Now ships with three rendering safeguards for WebView2 on Windows:
+
+1. **Theme-adaptive background** — the page reports its real theme color (`XNOWBG:r,g,b`) and the app re-syncs the native WebView2 background at runtime, so unpainted scroll/restore frames never contrast with the content (no dark-flash-on-light while scrolling, no white flash in dark mode).
+2. **Occlusion tracker disabled** (`CalculateNativeWinOcclusion`) — the tracker can misclassify the window during heavy video churn and leave the restored window bleached.
+3. **DirectComposition video overlays disabled** — the overlay planes detach/re-attach on every geometry change and can leave one-frame black bands while scrolling or at restore/resize.
+4. **Video mount guard** (page-level, `frontend/x-tools.js`) — X's own player chrome mounts **black** for the first ~3 compositor frames before any poster/video content paints, so every static↔video post transition produces a jaggy black pop that none of the GPU/occlusion fixes can reach (the gap is *inside* the media rect). The guard hides a freshly mounted or src-swapped `<video>` (plus its dark wrapper) behind `visibility:hidden` until its first frame actually decodes (`loadeddata`/`canplay`/`playing`, 1.5 s failsafe), letting the white card show through instead. It re-arms on `loadstart`/`emptied` because X's virtualized feed recycles the same `<video>` node across posts.
+
+Every launch prints the effective configuration to the log:
+
+```text
+[X-Now] Launch config: webview_args="--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,CalculateNativeWinOcclusion --disable-direct-composition-video-overlays" dark_background=true diagnostics=false
+[X-Now] Native background synced to page theme: #ffffff
+```
+
+| Flag | Effect |
+|---|---|
+| *(none)* | Stock behavior — theme-adaptive background + occlusion fix + video-overlay fix (recommended) |
+| `--no-occlusion-fix` | Drops only the occlusion-tracker fix |
+| `--no-gpu-video-overlays-fix` | Drops only the DirectComposition video-overlay fix (use if a black band ever reproduces) |
+| `--webview-default` | Full stock WebView2 behavior (white background, no workarounds) |
+| `--webview-args "..."` | Full custom WebView2 argument list (the wry UI defaults are always kept) |
+| `--webview-diagnostics` | Logs webview runtime state (visibility, video count, decode health) at startup and on every hide/show transition |
+
+For installed copies where the shortcut cannot be edited, the environment variable `XNOW_WEBVIEW_ARGS` applies the same override as `--webview-args` (the CLI flag wins when both are present). The `[X-Now]` log lines are written to stderr, so run X-Now from a terminal when capturing diagnostics — appending `2> xnow.log` saves them to a file. When reporting a rendering issue, attach a `--webview-diagnostics` launch log. Two verification tools back the fixes: the per-frame **screencast harness** (`scripts/xnow-screencast-flash-test.js`, requires `npm i playwright-core`) captures *every compositor frame* via CDP while scrolling the live app and correlates flashes with video lifecycle events (screenshots cannot catch 1-frame transients), and the **JS contract harness** (`npm run test:js` → `scripts/verify-xnow-helpers.js`, 88 assertions over jsdom) guards every `x-tools.js` behavior contract — run both after any change to `x-tools.js`.
 
 ---
 
 ## Author
 
-X-Now is crafted and maintained by  
-[@benedictusrey](https://github.com/benedictusrey)
+X-Now is conceived, engineered, and maintained solely by  
+**Benedictus Reynaldo Hartanto** ([@benedictusrey](https://github.com/benedictusrey))  
+Repository: [https://github.com/benedictusrey/X-Now](https://github.com/benedictusrey/X-Now)
 
 The project is intentionally independent from X Corp. and Twitter, Inc. Contributions and reproducible bug reports are welcome — provided they do not include credentials, private session data, or private downloaded media.

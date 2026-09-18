@@ -1,0 +1,19 @@
+{
+  "name": "x-now",
+  "version": "2.1.0",
+  "private": true,
+  "description": "X-Now — a native desktop shell for x.com built with Tauri v2 (Rust). There is no JS build step: frontend/x-tools.js is embedded into the binary via include_str!. This manifest exists to pin the dev/test tooling used by scripts/verify-xnow-helpers.js and scripts/xnow-flash-smoke-test.js.",
+  "scripts": {
+    "test:rust": "cargo test --lib --manifest-path src-tauri/Cargo.toml",
+    "test:js": "node scripts/verify-xnow-helpers.js",
+    "test:smoke": "node scripts/xnow-flash-smoke-test.js src-tauri/target/release/X-Now.exe smoke-test",
+    "build": "cd src-tauri && cargo build --release && npx --yes @tauri-apps/cli@2 build --bundles nsis,msi"
+  },
+  "devDependencies": {
+    "jsdom": "^30.0.1",
+    "playwright-core": "^1.45.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

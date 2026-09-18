@@ -1,3 +1,7 @@
+// Copyright (c) 2026 Benedictus Reynaldo Hartanto (@benedictusrey). All rights reserved.
+// X-Now — High-performance desktop client for X (https://github.com/benedictusrey/X-Now)
+// Licensed under the MIT License.
+
 #[cfg(windows)]
 mod audio;
 mod tray;
@@ -9,7 +13,7 @@ use std::{
     process::Command,
     sync::{
         atomic::{AtomicBool, AtomicU32, Ordering},
-        Arc, Mutex,
+        Arc, Condvar, Mutex,
     },
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -22,9 +26,312 @@ use tauri_plugin_shell::ShellExt;
 const X_WINDOW_LABEL: &str = "x";
 const X_HELPER_SCRIPT: &str = include_str!("../../frontend/x-tools.js");
 
+/// WebView2 browser arguments for the X window. The wry defaults
+/// (--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection) are kept
+/// and joined with the two rendering fixes below — overriding the args
+/// REPLACES the defaults, so the defaults must be spelled out here.
+///
+/// 1. CalculateNativeWinOcclusion is DISABLED because Chromium's native-window
+///    occlusion tracker on Windows misclassifies this window during heavy GPU
+///    churn — exactly what X's feed does when video posts start/stop around
+///    static text/image posts — and then treats the window as "occluded": the
+///    compositor throttles/skips frame production and the restored window
+///    paints as a bleached surface until another resize forces a repaint.
+///
+/// 2. --disable-direct-composition-video-overlays (the switch) because
+///    Chromium's DirectComposition video OVERLAY planes detach/re-attach on
+///    every window geometry change; during a restore/resize the overlay and
+///    the compositor surface resize out of sync, leaving a one-frame BLACK
+///    BAND at the window edge (the dark default background showing where the
+///    overlay had been — the "shadowing" glitch reports). With overlays off,
+///    video is composited into the normal surface and follows every geometry
+///    change atomically. Each fix is independently toggleable for bisecting:
+///    --no-occlusion-fix / --no-gpu-video-overlays-fix.
+const DEFAULT_WEBVIEW_BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,CalculateNativeWinOcclusion --disable-direct-composition-video-overlays";
+
 /// Guards the playback watchdog so it is spawned exactly once per process,
 /// no matter how many times the X window is (re)launched.
 static WATCHDOG_STARTED: AtomicBool = AtomicBool::new(false);
+
+/// Webview diagnostics mode (`--webview-diagnostics`): set once at launch,
+/// read by the watchdog and the window-event paths to gate the detailed
+/// per-transition logging (GPU, webview, audio state).
+static WEBVIEW_DIAGNOSTICS: AtomicBool = AtomicBool::new(false);
+
+/// Wake signal for the playback watchdog: window events (restore, focus,
+/// resize, close, tray show/hide) interrupt the watchdog's wait so a
+/// hidden↔visible transition is applied IMMEDIATELY instead of at the next
+/// poll tick. This is what lets the watchdog fall back to a 5 s cadence while
+/// the window stays hidden (idle-aware battery/CPU savings) without delaying
+/// the pause/resume reaction.
+static WATCHDOG_WAKE: (Mutex<bool>, Condvar) = (Mutex::new(false), Condvar::new());
+
+/// Safety-net cadence while the window stays hidden. The normal reaction is
+/// event-driven (instant); this only bounds the delay for transitions no event
+/// reaches (some driver/desktop edge paths bypass both Win32 messages and the
+/// tao event loop).
+const HIDDEN_POLL: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Wall-clock budget for the cold-start audio-session unmute retries before
+/// concluding no session will ever appear (see watch_x_window).
+#[cfg(windows)]
+const STARTUP_UNMUTE_GIVE_UP: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// wry's built-in WebView2 browser arguments (see wry 0.55's
+/// `create_environment`): overriding `additional_browser_args` REPLACES them,
+/// so they must always be re-stated in every composed argument string.
+const WRY_DEFAULT_BROWSER_ARGS: &str =
+    "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection";
+
+/// Chromium feature flag composing the occlusion workaround and its toggle
+/// switches (see compose_webview_browser_args). GPU-compositor experiments go
+/// through --webview-args (e.g. "--disable-gpu-compositing") rather than a
+/// dedicated flag — the shipped GPU-side mitigation IS the occlusion fix.
+const GPU_OCCLUSION_FIX_FEATURE: &str = "CalculateNativeWinOcclusion";
+
+/// Chromium switch for the video-overlay workaround (see
+/// DEFAULT_WEBVIEW_BROWSER_ARGS). A bare switch (not a feature), so it is
+/// removed by exact token match, not from the --disable-features list.
+const GPU_VIDEO_OVERLAY_SWITCH: &str = "--disable-direct-composition-video-overlays";
+
+/// Per-launch configuration for the WebView2 GPU/occlusion workarounds and
+/// the diagnostics mode.
+///
+/// CLI flags (checked in order, first match wins per group):
+/// - `--webview-default` — restore the plain wry defaults AND the stock white
+///   window background (drops both rendering workarounds; escape hatch if
+///   either ever misbehaves).
+/// - `--no-occlusion-fix` — drop only the occlusion-tracker fix, keep the
+///   dark background and the video-overlay fix (bisecting).
+/// - `--no-gpu-video-overlays-fix` — drop only the video-overlay fix, keep
+///   the occlusion fix and the dark background (bisecting the black-band
+///   workaround itself).
+/// - `--webview-args "..."` — FULL override for support sessions (e.g.
+///   `--webview-args "--disable-gpu-compositing"` to test the GPU compositor).
+/// - `--webview-diagnostics` — log the webview's real GPU/runtime state.
+///
+/// `XNOW_WEBVIEW_ARGS` (environment) behaves like `--webview-args` for
+/// installed copies where editing the shortcut is impractical.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct LaunchConfig {
+    /// Final WebView2 browser arguments passed to wry.
+    webview_args: String,
+    /// Pin the window background to X's dark surface (the white-flash fix).
+    /// `--webview-default` restores the stock white background. The runtime
+    /// then RE-SYNCS this color to the page's real theme background (see
+    /// detect_page_theme_color) so unpainted compositor gaps never contrast
+    /// with the rendered content while scrolling.
+    dark_background: bool,
+    /// Log the webview GPU/runtime state at startup and on hidden/visible
+    /// transitions (diagnostics mode).
+    webview_diagnostics: bool,
+}
+
+impl LaunchConfig {
+    /// Stock launch: wry defaults + the occlusion fix + the dark background
+    /// (the shipped behavior).
+    fn stock() -> Self {
+        LaunchConfig {
+            webview_args: DEFAULT_WEBVIEW_BROWSER_ARGS.to_string(),
+            dark_background: true,
+            webview_diagnostics: false,
+        }
+    }
+}
+
+/// Pure helper: compose the final browser-args string from the stock one and
+/// an optional override.
+///
+/// - `Some(args)` wins wholesale — the caller's string is used verbatim (with
+///   the wry defaults re-injected when absent, so a user override never
+///   accidentally re-enables the msWebOOUI mini-menu or SmartScreen). An empty
+///   string is treated as "not provided".
+/// - `None` keeps the stock args.
+fn compose_webview_browser_args(stock: &str, override_args: Option<&str>) -> String {
+    let Some(args) = override_args.map(str::trim).filter(|args| !args.is_empty()) else {
+        return stock.to_string();
+    };
+    // Re-inject the wry defaults unless the override already carries them:
+    // they exist to suppress UI papercuts, not rendering behavior, and must
+    // survive user experiments.
+    if args.contains("msWebOOUI") {
+        args.to_string()
+    } else {
+        format!("{WRY_DEFAULT_BROWSER_ARGS} {args}")
+    }
+}
+
+/// Pure helper: drop one Chromium feature from a `--disable-features=` list
+/// (used by the `--no-occlusion-fix` / `--no-gpu-fix` bisect switches).
+fn remove_disabled_feature(args: &str, feature: &str) -> String {
+    let mut result = String::with_capacity(args.len());
+    for token in args.split_whitespace() {
+        if let Some(list) = token.strip_prefix("--disable-features=") {
+            let kept: Vec<&str> = list
+                .split(',')
+                .map(str::trim)
+                .filter(|item| !item.is_empty() && *item != feature)
+                .collect();
+            if !kept.is_empty() {
+                result.push_str("--disable-features=");
+                result.push_str(&kept.join(","));
+                result.push(' ');
+            }
+        } else {
+            result.push_str(token);
+            result.push(' ');
+        }
+    }
+    result.trim_end().to_string()
+}
+
+/// Pure helper: drop one whole Chromium switch (e.g.
+/// `--disable-direct-composition-video-overlays`) from a whitespace-separated
+/// browser-args string (the overlay fix is a bare switch, not a
+/// --disable-features list entry).
+fn remove_browser_switch(args: &str, switch: &str) -> String {
+    args.split_whitespace()
+        .filter(|token| *token != switch)
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Resolve the per-launch configuration from the process arguments and the
+/// `XNOW_WEBVIEW_ARGS` environment override.
+fn resolve_launch_config<I, S>(args: I) -> LaunchConfig
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    let mut config = LaunchConfig::stock();
+    let mut iter = args.into_iter().peekable();
+    let mut explicit_override: Option<String> = None;
+
+    while let Some(arg) = iter.next() {
+        let arg = arg.as_ref();
+        match arg {
+            "--webview-default" => {
+                // Plain wry behavior: the stock args minus BOTH rendering
+                // workarounds, and the stock (white) window background back.
+                // Orthogonal to --webview-diagnostics (flags stay
+                // order-independent).
+                config.webview_args =
+                    remove_disabled_feature(&config.webview_args, GPU_OCCLUSION_FIX_FEATURE);
+                config.webview_args =
+                    remove_browser_switch(&config.webview_args, GPU_VIDEO_OVERLAY_SWITCH);
+                config.dark_background = false;
+            }
+            "--no-occlusion-fix" => {
+                config.webview_args =
+                    remove_disabled_feature(&config.webview_args, GPU_OCCLUSION_FIX_FEATURE);
+            }
+            "--no-gpu-video-overlays-fix" => {
+                config.webview_args =
+                    remove_browser_switch(&config.webview_args, GPU_VIDEO_OVERLAY_SWITCH);
+            }
+            "--webview-args" => {
+                explicit_override = iter.next().map(|value| value.as_ref().to_string());
+            }
+            other if other.starts_with("--webview-args=") => {
+                explicit_override = Some(other["--webview-args=".len()..].to_string());
+            }
+            "--webview-diagnostics" => {
+                config.webview_diagnostics = true;
+            }
+            _ => {}
+        }
+    }
+
+    let flag_override = explicit_override.as_deref();
+    if let Some(value) = flag_override {
+        config.webview_args = compose_webview_browser_args(&config.webview_args, Some(value));
+    }
+    // Environment override (same semantics as --webview-args) for installed
+    // copies. Its only precedence over the flag is that it also works when
+    // the flag cannot be added (fixed shortcuts); when both are present the
+    // flag wins as the more explicit signal.
+    if explicit_override.is_none() {
+        if let Ok(value) = std::env::var("XNOW_WEBVIEW_ARGS") {
+            config.webview_args = compose_webview_browser_args(&config.webview_args, Some(&value));
+        }
+    }
+
+    config
+}
+
+/// Interrupt the watchdog's wait so it re-evaluates the window state now.
+fn wake_watchdog() {
+    let mut pending = WATCHDOG_WAKE
+        .0
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    *pending = true;
+    WATCHDOG_WAKE.1.notify_all();
+}
+
+/// Parse a CSS color string (`rgb(255, 255, 255)`, `#0f1419`, `transparent`)
+/// into a native window color. Returns None when there is no opaque RGB
+/// triple to pin (the caller keeps the current background).
+fn parse_css_color_to_native(value: &str) -> Option<Color> {
+    let v = value.trim().to_lowercase();
+    if v.is_empty() || v == "transparent" {
+        return None;
+    }
+    if let Some(hex) = v.strip_prefix('#') {
+        return match hex.len() {
+            3 => Some(Color(
+                u8::from_str_radix(&hex[0..1].repeat(2), 16).ok()?,
+                u8::from_str_radix(&hex[1..2].repeat(2), 16).ok()?,
+                u8::from_str_radix(&hex[2..3].repeat(2), 16).ok()?,
+                255,
+            )),
+            6 => Some(Color(
+                u8::from_str_radix(&hex[0..2], 16).ok()?,
+                u8::from_str_radix(&hex[2..4], 16).ok()?,
+                u8::from_str_radix(&hex[4..6], 16).ok()?,
+                255,
+            )),
+            _ => None,
+        };
+    }
+    if v.starts_with("rgb") {
+        let nums: Vec<u8> = v
+            .split(|c: char| !c.is_ascii_digit())
+            .filter(|s| !s.is_empty())
+            .filter_map(|s| s.parse::<u8>().ok())
+            .collect();
+        if nums.len() >= 3 {
+            return Some(Color(nums[0], nums[1], nums[2], 255));
+        }
+    }
+    // Bare "r,g,b" component list (the XNOWBG: title-ping payload).
+    if !v.is_empty() && v.chars().all(|c| c.is_ascii_digit() || c == ',') {
+        let parts: Vec<u8> = v
+            .split(',')
+            .filter_map(|s| s.parse::<u8>().ok())
+            .collect();
+        if parts.len() == 3 {
+            return Some(Color(parts[0], parts[1], parts[2], 255));
+        }
+    }
+    None
+}
+
+/// The page tools ping the native side with the theme's background via a
+/// `XNOWBG:r,g,b` document title. This applies it to the webview so the
+/// unpainted-surface color matches the rendered theme exactly (a compositor
+/// raster gap while scrolling then fills with the SAME color as the content
+/// around it — invisible — instead of flashing dark-on-light or vice versa).
+fn apply_page_theme_background(window: &tauri::WebviewWindow, css_rgb: &str) {
+    if let Some(color) = parse_css_color_to_native(css_rgb) {
+        if window.set_background_color(Some(color)).is_ok() {
+            eprintln!(
+                "[X-Now] Native background synced to page theme: #{:02x}{:02x}{:02x}",
+                color.0, color.1, color.2
+            );
+        }
+    }
+}
 
 /// Labels for OAuth popup windows created by the login flow (X's Google/Apple
 /// sign-in opens `target=_blank` popups that relay the token back via
@@ -48,6 +355,28 @@ fn is_safe_http_url(url: &str) -> bool {
 const PAUSE_JS: &str = r#"(function(){
     if (window.__onWindowHidden) window.__onWindowHidden();
     return window.__xnowPauseReport ? window.__xnowPauseReport() : 'no-report';
+})()"#;
+
+/// Webview GPU/runtime diagnostics (`--webview-diagnostics`). Returns the
+/// evidence needed to attribute rendering problems to a GPU or occlusion
+/// source: the occlusion state and the open-video count. Synchronous IIFE —
+/// the eval callback receives the JSON string directly.
+const WEBVIEW_DIAGNOSTICS_JS: &str = r#"(function(){
+    var videos = document.querySelectorAll('video');
+    var playing = 0;
+    for (var i = 0; i < videos.length; i++) { if (!videos[i].paused) playing++; }
+    // The page cannot read Chromium's internal feature list; h264 decode
+    // support is the proxy for a functioning media/GPU stack.
+    var probe = document.createElement('video');
+    var canH264 = probe.canPlayType('video/mp4; codecs="avc1.42E01E"');
+    return JSON.stringify({
+        url: location.href,
+        visibility: document.visibilityState,
+        hidden: document.hidden,
+        videos: videos.length,
+        playing: playing,
+        h264Decode: canH264 ? 'supported' : 'unsupported'
+    });
 })()"#;
 
 /// JS that returns the current page-state diagnostics (for re-checks).
@@ -122,22 +451,37 @@ fn resume_media_for_visible(w: &tauri::WebviewWindow) {
 ///
 /// Some WebView2/WebKit builds never fire `visibilitychange` (or a resize
 /// event) for a minimized window, so the page would keep playing audio in the
-/// background. This thread polls the REAL window state and drives the page
-/// helpers on every hidden/visible transition. Cheap: two state reads every
-/// 800 ms, and the page eval only runs on a state CHANGE.
+/// background. This thread checks the REAL window state and drives the page
+/// helpers on every hidden/visible transition. Idle-aware: it sleeps on a
+/// condvar that window events wake immediately (restore, focus, resize,
+/// close, tray show/hide), so the reaction to a state change is instant while
+/// the steady-state cost is ONE timer wakeup per 5 s (~6× fewer OS wakeups
+/// than the old blind 800 ms poll) and the page eval still only runs on a
+/// state CHANGE.
 fn watch_x_window(w: tauri::WebviewWindow) {
     // Fail-safe direction: if a state query errors (e.g. the window was
     // destroyed), treat the window as HIDDEN so playback gets paused.
     let state_hidden = || w.is_minimized().unwrap_or(true) || !w.is_visible().unwrap_or(false);
     let mut last_hidden = state_hidden();
     #[cfg(windows)]
-    let mut unmute_ticks = 0u32;
-    #[cfg(windows)]
     let mut startup_unmuted = false;
+    #[cfg(windows)]
+    let startup_started = std::time::Instant::now();
     let mut startup_ticks = 0u32;
     let mut startup_reported = false;
     loop {
-        std::thread::sleep(std::time::Duration::from_millis(800));
+        // Idle-aware wait: window events set WATCHDOG_WAKE and interrupt this
+        // wait immediately; with no event it times out after 5 s and the
+        // state is re-checked anyway as a safety net for any edge path that
+        // bypasses the event hooks.
+        let pending_guard = WATCHDOG_WAKE.0.lock().unwrap_or_else(|error| error.into_inner());
+        let (mut pending_guard, _timeout) = WATCHDOG_WAKE
+            .1
+            .wait_timeout_while(pending_guard, HIDDEN_POLL, |flag| !*flag)
+            .unwrap_or_else(|error| error.into_inner());
+        *pending_guard = false;
+        drop(pending_guard);
+
         let hidden = state_hidden();
         // Windows PERSISTS a session's mute state across app restarts
         // (per-app Volume Mixer store). If the previous session exited while
@@ -145,13 +489,13 @@ fn watch_x_window(w: tauri::WebviewWindow) {
         // with no hidden/visible transition ever firing, nothing would unmute
         // it and the app would be silent while the page plays fine. Retry the
         // unmute until a session actually exists (the WebView2 session appears
-        // seconds after launch), capped at ~48 s. (Windows-only: audio.rs /
-        // Core Audio is cfg(windows).)
+        // seconds after launch), giving up after 60 s WALL CLOCK — the
+        // event-driven wake makes tick counts unpredictable, so a time-based
+        // bound is the robust one. (Windows-only: audio.rs / Core Audio.)
         #[cfg(windows)]
         {
             if !startup_unmuted {
-                unmute_ticks += 1;
-                if unmute_ticks >= 3 && !hidden {
+                if !hidden {
                     if audio::set_app_audio_mute(false) {
                         startup_unmuted = true;
                         eprintln!(
@@ -159,7 +503,7 @@ fn watch_x_window(w: tauri::WebviewWindow) {
                         );
                         // Immediate evidence: session state right after clearing.
                         audio::report_audio_state();
-                    } else if unmute_ticks >= 60 {
+                    } else if startup_started.elapsed() >= STARTUP_UNMUTE_GIVE_UP {
                         startup_unmuted = true; // no session appeared — nothing to clear
                         eprintln!("[X-Now] Watchdog: startup unmute gave up (no session appeared)");
                     }
@@ -168,22 +512,33 @@ fn watch_x_window(w: tauri::WebviewWindow) {
         }
         if hidden && !last_hidden {
             eprintln!("[X-Now] Watchdog: window hidden -> pausing media");
+            if WEBVIEW_DIAGNOSTICS.load(Ordering::Relaxed) {
+                let _ = w.eval_with_callback(WEBVIEW_DIAGNOSTICS_JS, |report| {
+                    eprintln!("[X-Now] Webview diagnostics (hidden): {}", report);
+                });
+            }
             pause_media_for_hidden(&w);
         } else if !hidden && last_hidden {
             eprintln!("[X-Now] Watchdog: window visible -> resuming media");
+            if WEBVIEW_DIAGNOSTICS.load(Ordering::Relaxed) {
+                let _ = w.eval_with_callback(WEBVIEW_DIAGNOSTICS_JS, |report| {
+                    eprintln!("[X-Now] Webview diagnostics (visible): {}", report);
+                });
+            }
             resume_media_for_visible(&w);
         }
         last_hidden = hidden;
         // Cold-start diagnostic: ~20 s after launch, with no hidden/visible
         // transition yet, dump the TRUE fresh-launch page state (muted?
         // volume?) — the E2E evidence that the startup audio defaults hold
-        // BEFORE any minimize/restore cycle.
+        // BEFORE any minimize/restore cycle. (4 ticks ≈ 20 s at the 5 s
+        // fallback cadence; launch events usually land it sooner.)
         if !startup_reported {
             if hidden {
                 startup_reported = true; // a transition happened first; skip
             } else {
                 startup_ticks += 1;
-                if startup_ticks >= 25 {
+                if startup_ticks >= 4 {
                     startup_reported = true;
                     let _ = w.eval_with_callback(REPORT_JS, |report| {
                         eprintln!("[X-Now] Watchdog startup report: {}", report);
@@ -191,6 +546,12 @@ fn watch_x_window(w: tauri::WebviewWindow) {
                     // OS-level evidence: session mute + master volume.
                     #[cfg(windows)]
                     audio::report_audio_state();
+                    // Diagnostics mode: full webview GPU/runtime state too.
+                    if WEBVIEW_DIAGNOSTICS.load(Ordering::Relaxed) {
+                        let _ = w.eval_with_callback(WEBVIEW_DIAGNOSTICS_JS, |report| {
+                            eprintln!("[X-Now] Webview diagnostics (startup): {}", report);
+                        });
+                    }
                 }
             }
         }
@@ -210,6 +571,16 @@ pub fn launch_x_internal(app: &AppHandle, start_minimized: bool) -> Result<(), S
         }
         return Ok(());
     }
+
+    // Per-launch webview workarounds + diagnostics (--webview-* / XNOW_WEBVIEW_ARGS).
+    let launch_config = resolve_launch_config(std::env::args());
+    WEBVIEW_DIAGNOSTICS.store(launch_config.webview_diagnostics, Ordering::Relaxed);
+    eprintln!(
+        "[X-Now] Launch config: webview_args=\"{}\" dark_background={} diagnostics={}",
+        launch_config.webview_args,
+        launch_config.dark_background,
+        launch_config.webview_diagnostics
+    );
 
     let browser_app = app.clone();
     let navigation_app = app.clone();
@@ -241,9 +612,26 @@ pub fn launch_x_internal(app: &AppHandle, start_minimized: bool) -> Result<(), S
     .resizable(true)
     .center()
     .visible(!start_minimized)
+    // X's dark surface color: with a white default background, every frame
+    // not yet painted by the webview (launch, occlusion-throttled
+    // compositing, heavy video churn) blanches the whole window. wry maps
+    // this straight to WebView2's opaque SetDefaultBackgroundColor, so
+    // the unpainted surface is X-dark instead of white — this kills the
+    // white launch flash too. The page tools then report the ACTUAL theme
+    // background (XNOWBG:r,g,b) and the app re-syncs at runtime, so the
+    // fill color always matches the rendered theme — no dark-flash-on-light
+    // while scrolling. --webview-default restores the stock white start.
+    .background_color(if launch_config.dark_background {
+        Color(15, 20, 25, 255)
+    } else {
+        Color(255, 255, 255, 255)
+    })
     .icon(window_icon)
     .expect("X-Now bundled window icon is invalid")
     .data_directory(profile_data_dir)
+    // Occlusion-tracker + video-overlay hardening, per-launch overridable
+    // (see DEFAULT_WEBVIEW_BROWSER_ARGS / resolve_launch_config docs).
+    .additional_browser_args(&launch_config.webview_args)
     .initialization_script(X_HELPER_SCRIPT)
     // ── OAuth popup manager & external-link router ─────────────────────────
     // X's Google/Apple sign-in opens `target=_blank` popups (accounts.google.com
@@ -367,6 +755,21 @@ pub fn launch_x_internal(app: &AppHandle, start_minimized: bool) -> Result<(), S
     //     never fires — this title signal is the guaranteed close moment.
     .on_document_title_changed(move |window, page_title| {
         let app = window.app_handle().clone();
+        // Theme channel: the page tools ping `XNOWBG:r,g,b` when the theme's
+        // real background color is known/changes. The native background is
+        // re-synced so unpainted compositor gaps (scroll raster tiles,
+        // restore frames) never contrast with the rendered content.
+        if let Some(rgb) = page_title.strip_prefix("XNOWBG:") {
+            apply_page_theme_background(&window, rgb);
+            // Restore the proper titlebar text at once — the ping payload must
+            // never flash up in the native title.
+            let cached = cache_for_title.lock().unwrap().clone();
+            let _ = window.set_title(&cached.map_or_else(
+                || "X-Now".to_string(),
+                |u| format!("X-Now (@{u})"),
+            ));
+            return;
+        }
         // Diagnostic channel: the page tools report media-save failures via a
         // XNOWERR: title — surfaced to the app log without touching the title.
         if let Some(reason) = page_title.strip_prefix("XNOWERR:") {
@@ -672,26 +1075,252 @@ pub fn run() {
                     // FIRST, pause via a plain eval (no callbacks/threads/COM —
                     // those were observed to race with the OS close processing
                     // and occasionally let the window be destroyed), then hide.
-                    // The watchdog's hidden-transition applies the full layered
-                    // pause within ~800 ms.
+                    // The wake makes the watchdog apply the full layered pause
+                    // immediately; the 5 s fallback is the safety net.
                     api.prevent_close();
+                    wake_watchdog();
                     if let Some(win) = window.get_webview_window(X_WINDOW_LABEL) {
                         let _ = win.eval("if (window.__onWindowHidden) window.__onWindowHidden();");
                         let _ = win.hide();
                     }
                 }
             }
-            // Fast path: tao emits Resized(0x0) the moment the window minimizes,
-            // while the watchdog polls at 800 ms. Pause immediately here too.
+            // Fast path: tao emits Resized(0x0) the moment the window minimizes.
+            // Wake the watchdog so the hidden transition (and its layered
+            // pause) applies instantly.
+            //
+            // Deliberately NO direct pause here: during a RESTORE, tao emits
+            // Resized events with stale interim sizes, and the is_minimized()
+            // probe raced the actual SW_RESTORE — it intermittently still
+            // reported true, so the "minimize fast path" PAUSED right after
+            // the resume, forcing the video to re-attach its compositor
+            // overlay mid-resize. That re-attachment under a moving window
+            // geometry is the intermittent black-flash band at restore. The
+            // watchdog re-checks state after every wake anyway, and its pause
+            // goes through the same page helpers.
             tauri::WindowEvent::Resized(_) => {
-                if window.label() == X_WINDOW_LABEL && window.is_minimized().unwrap_or(false) {
-                    if let Some(win) = window.get_webview_window(X_WINDOW_LABEL) {
-                        pause_media_for_hidden(&win);
-                    }
+                if window.label() == X_WINDOW_LABEL {
+                    wake_watchdog();
+                }
+            }
+            tauri::WindowEvent::Focused(_) => {
+                // Restore/focus transitions are what the resume path reacts to;
+                // waking here removes any perceptible resume delay.
+                if window.label() == X_WINDOW_LABEL {
+                    wake_watchdog();
                 }
             }
             _ => {}
         })
         .run(tauri::generate_context!())
         .expect("error while running X-Now");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args<'a>(list: &'a [&'a str]) -> Vec<&'a str> {
+        list.to_vec()
+    }
+
+    // ── compose_webview_browser_args ─────────────────────────────────
+
+    #[test]
+    fn compose_keeps_stock_when_no_override() {
+        assert_eq!(
+            compose_webview_browser_args(DEFAULT_WEBVIEW_BROWSER_ARGS, None),
+            DEFAULT_WEBVIEW_BROWSER_ARGS
+        );
+    }
+
+    #[test]
+    fn compose_ignores_empty_override() {
+        assert_eq!(
+            compose_webview_browser_args(DEFAULT_WEBVIEW_BROWSER_ARGS, Some("   ")),
+            DEFAULT_WEBVIEW_BROWSER_ARGS
+        );
+    }
+
+    #[test]
+    fn compose_reinjects_wry_defaults() {
+        let composed = compose_webview_browser_args(
+            DEFAULT_WEBVIEW_BROWSER_ARGS,
+            Some("--disable-gpu-compositing"),
+        );
+        assert!(composed.starts_with(WRY_DEFAULT_BROWSER_ARGS));
+        assert!(composed.contains("--disable-gpu-compositing"));
+    }
+
+    #[test]
+    fn compose_does_not_duplicate_wry_defaults() {
+        let composed = compose_webview_browser_args(
+            DEFAULT_WEBVIEW_BROWSER_ARGS,
+            Some("--disable-features=msWebOOUI,Foo"),
+        );
+        assert_eq!(composed.matches("msWebOOUI").count(), 1);
+    }
+
+    // ── remove_disabled_feature ──────────────────────────────────────
+
+    #[test]
+    fn remove_feature_drops_only_the_named_flag() {
+        let result = remove_disabled_feature(
+            "--disable-features=msWebOOUI,CalculateNativeWinOcclusion,msPdfOOUI",
+            "CalculateNativeWinOcclusion",
+        );
+        assert_eq!(result, "--disable-features=msWebOOUI,msPdfOOUI");
+    }
+
+    #[test]
+    fn remove_feature_keeps_other_tokens() {
+        // The named feature is the ONLY list entry: the empty --disable-features
+        // token is dropped entirely, other switches survive untouched.
+        let result = remove_disabled_feature(
+            "--disable-features=CalculateNativeWinOcclusion --disable-gpu-compositing",
+            "CalculateNativeWinOcclusion",
+        );
+        assert_eq!(result, "--disable-gpu-compositing");
+    }
+
+    #[test]
+    fn remove_feature_removes_empty_list_token() {
+        let result =
+            remove_disabled_feature("--disable-features=CalculateNativeWinOcclusion", "CalculateNativeWinOcclusion");
+        assert_eq!(result, "");
+    }
+
+    // ── remove_browser_switch ────────────────────────────────────────
+
+    #[test]
+    fn remove_switch_drops_only_the_named_switch() {
+        let result = remove_browser_switch(
+            "--disable-features=A,B --disable-direct-composition-video-overlays --other",
+            "--disable-direct-composition-video-overlays",
+        );
+        assert_eq!(result, "--disable-features=A,B --other");
+    }
+
+    #[test]
+    fn remove_switch_tolerates_absent_switch() {
+        let result = remove_browser_switch("--disable-features=A", "--disable-direct-composition-video-overlays");
+        assert_eq!(result, "--disable-features=A");
+    }
+
+    // ── resolve_launch_config ────────────────────────────────────────
+
+    #[test]
+    fn default_config_is_stock() {
+        let config = resolve_launch_config(args(&[]));
+        assert_eq!(config, LaunchConfig::stock());
+        assert!(config.webview_args.contains(GPU_OCCLUSION_FIX_FEATURE));
+        assert!(config.webview_args.contains(GPU_VIDEO_OVERLAY_SWITCH));
+        assert!(config.dark_background);
+        assert!(!config.webview_diagnostics);
+    }
+
+    #[test]
+    fn webview_default_drops_fix_and_dark_background() {
+        let config = resolve_launch_config(args(&["--webview-default"]));
+        assert!(!config.webview_args.contains(GPU_OCCLUSION_FIX_FEATURE));
+        // Both rendering workarounds are dropped: the overlay switch too.
+        assert!(!config.webview_args.contains(GPU_VIDEO_OVERLAY_SWITCH));
+        assert!(!config.dark_background);
+        // The wry defaults (mini-menu / SmartScreen suppression) survive.
+        assert!(config.webview_args.contains("msWebOOUI"));
+    }
+
+    #[test]
+    fn no_occlusion_fix_keeps_dark_background() {
+        let config = resolve_launch_config(args(&["--no-occlusion-fix"]));
+        assert!(!config.webview_args.contains(GPU_OCCLUSION_FIX_FEATURE));
+        assert!(config.dark_background);
+        assert!(config.webview_args.contains("msWebOOUI"));
+    }
+
+    #[test]
+    fn no_gpu_video_overlays_fix_drops_only_the_overlay_switch() {
+        let config = resolve_launch_config(args(&["--no-gpu-video-overlays-fix"]));
+        assert!(!config.webview_args.contains(GPU_VIDEO_OVERLAY_SWITCH));
+        // The occlusion fix and the dark background stay.
+        assert!(config.webview_args.contains(GPU_OCCLUSION_FIX_FEATURE));
+        assert!(config.dark_background);
+        assert!(config.webview_args.contains("msWebOOUI"));
+    }
+
+    #[test]
+    fn webview_args_override_wins_and_keeps_wry_defaults() {
+        let config = resolve_launch_config(args(&[
+            "--webview-args",
+            "--disable-gpu-compositing",
+        ]));
+        assert!(config.webview_args.starts_with(WRY_DEFAULT_BROWSER_ARGS));
+        assert!(config.webview_args.contains("--disable-gpu-compositing"));
+        // A full override does NOT silently re-add the occlusion fix.
+        assert!(!config.webview_args.contains(GPU_OCCLUSION_FIX_FEATURE));
+        assert!(config.dark_background);
+    }
+
+    #[test]
+    fn webview_args_equals_form_works() {
+        let config = resolve_launch_config(args(&["--webview-args=--disable-gpu"]));
+        assert!(config.webview_args.contains("--disable-gpu"));
+    }
+
+    #[test]
+    fn diagnostics_flag_enables_mode() {
+        let config = resolve_launch_config(args(&["--webview-diagnostics"]));
+        assert!(config.webview_diagnostics);
+        // Diagnostics alone does not change the workarounds.
+        assert_eq!(config.webview_args, DEFAULT_WEBVIEW_BROWSER_ARGS);
+    }
+
+    #[test]
+    fn flags_combine() {
+        let config = resolve_launch_config(args(&[
+            "--webview-diagnostics",
+            "--no-occlusion-fix",
+            "--webview-args=--disable-gpu-compositing",
+        ]));
+        assert!(config.webview_diagnostics);
+        assert!(!config.webview_args.contains(GPU_OCCLUSION_FIX_FEATURE));
+        assert!(config.webview_args.contains("--disable-gpu-compositing"));
+        assert!(config.webview_args.contains("msWebOOUI"));
+    }
+
+    #[test]
+    fn unrelated_flags_are_ignored() {
+        let config = resolve_launch_config(args(&["--minimized", "--webview-diagnostics"]));
+        assert!(config.webview_diagnostics);
+        assert_eq!(config.webview_args, DEFAULT_WEBVIEW_BROWSER_ARGS);
+    }
+
+    // ── parse_css_color_to_native (theme background sync) ────────────
+
+    #[test]
+    fn css_rgb_parses() {
+        assert_eq!(parse_css_color_to_native("rgb(255, 255, 255)"), Some(Color(255, 255, 255, 255)));
+        assert_eq!(parse_css_color_to_native("rgb(21, 32, 43)"), Some(Color(21, 32, 43, 255)));
+    }
+
+    #[test]
+    fn css_hex_parses() {
+        assert_eq!(parse_css_color_to_native("#0f1419"), Some(Color(15, 20, 25, 255)));
+        assert_eq!(parse_css_color_to_native("#fff"), Some(Color(255, 255, 255, 255)));
+    }
+
+    #[test]
+    fn css_transparent_and_garbage_return_none() {
+        assert_eq!(parse_css_color_to_native("transparent"), None);
+        assert_eq!(parse_css_color_to_native(""), None);
+        assert_eq!(parse_css_color_to_native("rgb(1, 2)"), None);
+    }
+
+    #[test]
+    fn bare_rgb_component_list_parses() {
+        // The exact XNOWBG: title-ping payload form.
+        assert_eq!(parse_css_color_to_native("255,255,255"), Some(Color(255, 255, 255, 255)));
+        assert_eq!(parse_css_color_to_native("15,20,25"), Some(Color(15, 20, 25, 255)));
+        assert_eq!(parse_css_color_to_native("1,2,3,4"), None);
+    }
 }

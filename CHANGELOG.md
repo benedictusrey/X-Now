@@ -4,6 +4,28 @@ All notable changes to **X-Now** are documented here. The format follows [Keep a
 
 ---
 
+## [Unreleased] — 2026-09-14
+
+### 🚀 Added
+- **Video mount guard (the "shocking flash" fix)**: X mounts each feed video player's chrome BLACK for the first few compositor frames before any content (poster image or first video frame) paints — pixel-verified via per-frame screencast capture. The page now hides a freshly mounted or src-swapped `<video>` (and its dark player wrapper) until the first frame decodes, so the white card shows through instead of a black flash at every static↔video post transition. Contract-tested (`window.__xnowVideoMountGuard`); see `docs/BUILD_AND_FIXES.md` §2.5.
+- **Per-frame screencast flash harness**: `scripts/xnow-screencast-flash-test.js` captures EVERY compositor frame over CDP (screenshots structurally miss 1-frame transients) with masked tile-grid void detection, inside-rect flash detection, video-event correlation and a videos-blocked A/B phase; `scripts/tile-flip-diff.js`, `scripts/region-white-scan.js`, `scripts/analyze-void-evidence.js` and `scripts/probe-guard-state.js` support the analysis.
+- **Per-launch WebView2 workaround toggles + diagnostics mode**: every launch logs its effective webview configuration; `--no-occlusion-fix`, `--no-gpu-video-overlays-fix`, `--webview-default` (full stock restore) and `--webview-args "..."` / `XNOW_WEBVIEW_ARGS` toggle or replace the rendering workarounds without rebuilding; `--webview-diagnostics` logs webview runtime state at startup and on every hide/show transition.
+- **Scroll-flash smoke test**: `scripts/xnow-flash-smoke-test.js` drives the real app over CDP (Playwright), wheel-scrolls the feed, captures 40 consecutive frames plus 8 scroll-depth screenshots, and quantifies dark/white flash bands per frame — the regression harness for the rendering fixes.
+
+### ⚡ Changed
+- **Theme-adaptive native background (scroll-flash fix)**: X resolves its theme asynchronously, so the page now reports its real background color (`XNOWBG:r,g,b`) and the app re-syncs the native WebView2 background at runtime (`Native background synced to page theme: #…` in the log). Unpainted compositor gaps — scroll raster tiles, restore frames — now fill with the SAME color as the surrounding content instead of flashing as a contrasting dark-on-light (or light-on-dark) band.
+- **Idle-aware timers (battery/CPU)**: the page's route/handle poll adapts to usage (1 s active → 5 s idle → 15 s deep-idle → 30 s hidden, instantly re-armed by input/visibility), and the Rust playback watchdog is event-driven — window events wake it instantly; its fallback poll dropped from 800 ms to 5 s (~6× fewer OS wakeups; hundreds saved per hour while hidden in the tray).
+
+### 🔧 Fixed
+- **Flashing/jaggy black bands while scrolling (the reported "glitch black flashing")**: two compounding causes eliminated. First, Chromium's DirectComposition video OVERLAY planes detach/re-attach on every window geometry change and lag the compositor surface during fast scroll — video overlays are now disabled (`--disable-direct-composition-video-overlays`), so video composites into the normal surface and follows every frame atomically (bisect switch: `--no-gpu-video-overlays-fix`). Second, the unpainted-surface color contrasted with the rendered theme (see the theme-adaptive background above); the occlusion tracker fix from the previous white-screen report is retained.
+- **Bleached/white screen over the X window**: Chromium's native-window occlusion tracker (`CalculateNativeWinOcclusion`) misclassified the window during heavy video churn; disabled for X-Now's webview, with the launch background pinned dark (then theme-adaptive at runtime).
+- **Glitching / misplaced UI after View ▸ Zoom**: zoom now uses the webview engine's native `set_zoom` (Rust-tracked level, 100–300%) instead of the `document.body.style.zoom` CSS hack that left fixed-position overlays and composited video layers misplaced.
+- **Stale bundle icon set + stale exe resource**: the Tauri bundle icons were outdated low-res copies (now byte-identical to the HD root set), and `tauri-build` never watched icon files — `build.rs` now emits `rerun-if-changed` for every bundle icon so icon updates always recompile the Windows resource.
+- **Restore-time pause race**: the minimize fast-path probed `is_minimized()` on `Resized` events whose interim sizes also arrive during RESTORE, intermittently pausing right after the resume; the event-driven watchdog now handles every transition.
+- **Residual mount-time black flashes while scrolling**: X's virtualized feed reuses the same `<video>` node across posts and Chromium can report the previous stream's `readyState >= 2` at the swap moment — the mount guard therefore force-re-arms on `loadstart`/`emptied` (bypassing the stale-frame gate) and releases on the new stream's first frame, closing the last black-gap window at recycled-player src swaps.
+
+---
+
 ## [2.1.0] — 2026-08-15
 
 ### 🎨 Changed
@@ -15,7 +37,7 @@ All notable changes to **X-Now** are documented here. The format follows [Keep a
 - **Windows installers with the X-Now branding**: `tauri build` now produces the NSIS `.exe` and WiX `.msi` installers with `icons/icon.ico` configured for the NSIS installer and uninstaller. The Windows bundle uses the same brand icon in its package metadata.
 
 ### 📦 Release engineering
-- The manual `azure-pipelines.yml` build validates the v2.1.0 version in `tauri.conf.json`, `Cargo.toml`, and `Cargo.lock`, syncs the root icon assets into the Tauri bundle, builds Windows x64, Linux x64, and one macOS universal installer, checks the expected package types, and publishes SHA-256 manifests for both Azure download and GitHub upload.
+- Automated GitHub Actions release pipeline (`.github/workflows/release.yml`) builds Windows x64 (NSIS, MSI, portable), Linux x64 (AppImage, DEB, RPM), and macOS (universal DMG containing arm64 and x86_64 code), automatically validates package integrity, and produces draft GitHub Releases with SHA-256 manifests.
 
 
 ### 🔧 Fixed

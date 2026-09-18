@@ -1,5 +1,6 @@
 // jsdom regression harness for X-Now's frontend/x-tools.js
-// Assertions on the pause/resume/mute helpers + toast + media menu contract.
+// Assertions on the pause/resume/mute helpers + toast + media menu contract
+// + theme background reporter + video mount guard (black-flash fix).
 // Usage: node verify-xnow-helpers.js <path-to-x-tools.js>
 'use strict';
 
@@ -7,7 +8,7 @@ const fs = require('fs');
 const path = require('path');
 const { JSDOM } = require('jsdom');
 
-const TOOLS = process.argv[2] || path.join(__dirname, '..', '..', 'Desktop', 'X-Now', 'frontend', 'x-tools.js');
+const TOOLS = process.argv[2] || path.join(__dirname, '..', 'frontend', 'x-tools.js');
 const SCRIPT = fs.readFileSync(TOOLS, 'utf8');
 
 let passed = 0;
@@ -446,10 +447,130 @@ win2.setTimeout(() => {
       'click on the non-media part of an external link IS handed off');
     win2.open = realOpen;
 
+// ── Theme background reporter (XNOWBG contract with lib.rs) ─────────────────
+// The native side parses exactly "XNOWBG:r,g,b" from document.title; the page
+// must never emit it for a transparent/undecided body color (would darken a
+// light theme), must deduplicate unchanged colors, and must re-report on change.
+const reportTheme = window.__xnowReportThemeBackground;
+assert(typeof reportTheme === 'function', '__xnowReportThemeBackground exposed');
+assert(doc.title.indexOf('XNOWBG:') === -1,
+  'no XNOWBG ping before a concrete body color is known');
+doc.body.style.backgroundColor = 'rgb(21, 32, 43)';
+reportTheme();
+assert(doc.title === 'XNOWBG:21,32,43',
+  'concrete body color is reported as XNOWBG:r,g,b');
+doc.body.style.backgroundColor = 'rgba(21, 32, 43, 0.5)';
+reportTheme();
+assert(doc.title === 'XNOWBG:21,32,43',
+  'transparent body color is IGNORED (alpha < 1 must not darken a theme)');
+doc.body.style.backgroundColor = 'rgb(255, 255, 255)';
+reportTheme();
+assert(doc.title === 'XNOWBG:255,255,255',
+  'theme change is re-reported with the new color');
+reportTheme();
+assert(doc.title === 'XNOWBG:255,255,255',
+  'unchanged color does not re-ping (deduplication)');
+
+// ── Video mount guard (no black player gap at mount/src-swap) ────────────────
+// Contract: a fresh, frameless, posterless feed <video> is hidden (with its
+// nearest dark player wrapper) until the first frame decodes, then released.
+// Poster-bearing and frame-ready videos are exempt; release events are
+// loadeddata/canplay/playing plus a hard timeout.
+const guard = window.__xnowVideoMountGuard;
+assert(typeof guard === 'object' && typeof guard.mark === 'function',
+  '__xnowVideoMountGuard exposed');
+const gWrap = doc.createElement('div');
+gWrap.style.backgroundColor = 'rgb(0, 0, 0)'; // X's "Embedded video" chrome color
+const gVideo = doc.createElement('video');
+gVideo.dataset.testRect = '300,300,0,0';
+gWrap.appendChild(gVideo);
+doc.body.appendChild(gWrap);
+guard.mark(gVideo);
+assert(gVideo.getAttribute(guard.ATTR) !== null,
+  'fresh frameless posterless video is mount-guarded');
+assert(gWrap.getAttribute(guard.ATTR) !== null,
+  'dark player wrapper is guarded together with the video');
+const pVideo = doc.createElement('video');
+pVideo.setAttribute('poster', 'https://x.com/p.jpg');
+doc.body.appendChild(pVideo);
+guard.mark(pVideo);
+assert(pVideo.getAttribute(guard.ATTR) !== null,
+  'video with a poster ATTRIBUTE is still guarded (X always sets posters; they are not yet painted at mount)');
+guard.release(pVideo);
+assert(pVideo.getAttribute(guard.ATTR) === null,
+  'poster-bearing video releases normally');
+const rVideo = doc.createElement('video');
+Object.defineProperty(rVideo, 'readyState', { value: 2, configurable: true });
+doc.body.appendChild(rVideo);
+guard.mark(rVideo);
+assert(rVideo.getAttribute(guard.ATTR) === null,
+  'video with a decodable frame (readyState >= 2) is NOT guarded');
+const wVideo = doc.createElement('video');
+const wHost = doc.createElement('div');
+wHost.style.backgroundColor = 'rgb(255, 255, 255)';
+wHost.appendChild(wVideo);
+doc.body.appendChild(wHost);
+guard.mark(wVideo);
+assert(wVideo.getAttribute(guard.ATTR) !== null && wHost.getAttribute(guard.ATTR) === null,
+  'light-surfaced wrapper is NOT hidden with the video');
+guard.release(gVideo);
+assert(gVideo.getAttribute(guard.ATTR) === null && gWrap.getAttribute(guard.ATTR) === null,
+  'explicit release clears both video and wrapper');
+const eVideo = doc.createElement('video');
+doc.body.appendChild(eVideo);
+guard.mark(eVideo);
+eVideo.dispatchEvent(new window.Event('loadeddata'));
+assert(eVideo.getAttribute(guard.ATTR) === null,
+  'guard releases on the loadeddata event');
+const cVideo = doc.createElement('video');
+doc.body.appendChild(cVideo);
+guard.mark(cVideo);
+cVideo.dispatchEvent(new window.Event('playing'));
+assert(cVideo.getAttribute(guard.ATTR) === null,
+  'guard releases on the playing event');
+// MutationObserver auto-marks newly mounted videos (microtasks flush before
+// the next macrotask, so this assertion can run in a deferred timer).
+const mVideo = doc.createElement('video');
+doc.body.appendChild(mVideo);
+setTimeout(() => {
+  assert(mVideo.getAttribute(guard.ATTR) !== null,
+    'MutationObserver auto-guards newly mounted videos');
+  mVideo.dispatchEvent(new window.Event('canplay'));
+  assert(mVideo.getAttribute(guard.ATTR) === null,
+    'auto-guarded video releases on canplay');
+  // loadstart/emptied re-arm (recycled virtualized players): X's feed reuses
+  // the same <video> node across posts, so scroll transitions are src swaps
+  // (loadstart) on an existing element, not insertions.
+  const sVideo = doc.createElement('video'); // jsdom default readyState = 0
+  doc.body.appendChild(sVideo);
+  sVideo.dispatchEvent(new window.Event('loadstart'));
+  assert(sVideo.getAttribute(guard.ATTR) !== null,
+    'loadstart re-arms the guard on a recycled player');
+  sVideo.dispatchEvent(new window.Event('emptied'));
+  assert(sVideo.getAttribute(guard.ATTR) !== null,
+    'emptied keeps the guard armed');
+  sVideo.dispatchEvent(new window.Event('loadeddata'));
+  assert(sVideo.getAttribute(guard.ATTR) === null,
+    'recycled player releases when the new stream decodes');
+  // Chromium can still report the PREVIOUS stream's readyState (>=2) at
+  // loadstart — the re-arm must FORCE the mark past the stale-frame gate.
+  const staleVideo = doc.createElement('video');
+  Object.defineProperty(staleVideo, 'readyState', { value: 4, configurable: true });
+  doc.body.appendChild(staleVideo);
+  staleVideo.dispatchEvent(new window.Event('loadstart'));
+  assert(staleVideo.getAttribute(guard.ATTR) !== null,
+    'loadstart forces the mark even when stale readyState >= 2');
+  staleVideo.dispatchEvent(new window.Event('loadeddata'));
+  assert(staleVideo.getAttribute(guard.ATTR) === null,
+    'stale-gated player releases when the new stream decodes');
+}, 10);
+
     // ── Cleanup sanity: single style element across the whole session ──────────
     assert(doc.querySelectorAll('style').length === 1, 'no style duplication after route polls');
 
+    setTimeout(() => {
     console.log(`\n${passed} passed, ${failed} failed`);
     process.exit(failed === 0 ? 0 : 1);
+    }, 50);
   }, 1100);
 }, 150);

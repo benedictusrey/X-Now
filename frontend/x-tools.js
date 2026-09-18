@@ -1,3 +1,7 @@
+// Copyright (c) 2026 Benedictus Reynaldo Hartanto (@benedictusrey). All rights reserved.
+// X-Now — High-performance desktop client for X (https://github.com/benedictusrey/X-Now)
+// Licensed under the MIT License.
+
 (function () {
   if (window.__xnowMediaToolsInstalled) return;
   window.__xnowMediaToolsInstalled = true;
@@ -167,6 +171,14 @@
       font-size: 17px !important;
     }
 
+    /* Video mount guard (see __xnowVideoMountGuard below): a freshly mounted
+       feed video with no poster frame stays unrendered until its first frame
+       decodes, so the white card shows through instead of the player's black
+       chrome. visibility (not display) keeps X's layout metrics untouched. */
+    [data-xnow-mount-wait] {
+      visibility: hidden !important;
+    }
+
   `;
 
   function appendStyle() {
@@ -280,17 +292,14 @@
     }
   }
 
-  function pauseOtherVideos(activeVideo) {
-    document.querySelectorAll("video").forEach(video => {
-      if (video !== activeVideo && !video.paused) video.pause();
-    });
-  }
-
   // The user's own gesture on a video (play/unmute click) marks the session
-  // as audio-unlocked and keeps only this video playing — without ever
-  // blocking X's native player controls (no stopImmediatePropagation here).
-  // From the first media interaction on, X's own mute state is the authority
-  // and X-Now only nudges volume for standalone (lightbox) playback.
+  // as audio-unlocked — without ever blocking X's native player controls (no
+  // stopImmediatePropagation here). From the first media interaction on, X's
+  // own mute state is the authority and X-Now only nudges volume for
+  // standalone (lightbox) playback. X-Now does NOT pause the other videos on
+  // the gesture: X's player owns that policy while the window is visible, and
+  // a second enforcer here produced glitchy play/pause tug-of-war around
+  // media transitions (see the IntersectionObserver note below).
   window.addEventListener("pointerdown", event => {
     if (event.button !== 0) return;
     const media = mediaFromTarget(event.target) || mediaAtPoint(event.clientX, event.clientY);
@@ -298,7 +307,6 @@
     state.activeVideo = media;
     state.videoAudioUnlocked = true;
     if (isStandaloneVideo(media)) activateVideoAudio(media);
-    pauseOtherVideos(media);
   }, true);
 
   function isVideoOnScreen(video) {
@@ -314,9 +322,16 @@
       .filter(video => isVisible(video) && isVideoOnScreen(video) && isPostVideo(video));
   }
 
-  // ── IntersectionObserver: in-view autoplay + pause-out-of-view ──────────
-  // Mirrors X's own autoplay intent without fighting it: the first video that
-  // reaches 50% visibility becomes the active one, everything else pauses.
+  // ── IntersectionObserver: track the in-view video (NO forced playback) ────
+  // X's own player engine already autoplays in-view videos and pauses the rest
+  // as the feed scrolls between static text/image posts and video posts. This
+  // observer used to ALSO force play() and pause the neighbors at every 50%
+  // visibility crossing — a second autoplay engine racing X's: both issued
+  // competing play/pause commands around every static↔video transition, which
+  // surfaced as stutter/glitching exactly when video posts started and stopped.
+  // X-Now now only REMEMBERS the in-view video (state.activeVideo — used by the
+  // hide/resume helpers and diagnostics) and applies audio defaults; playback
+  // itself stays 100% X's decision.
   const observer = new IntersectionObserver(entries => {
     entries.forEach(entry => {
       const video = entry.target;
@@ -324,11 +339,136 @@
       if (entry.isIntersecting && entry.intersectionRatio >= 0.5) {
         state.activeVideo = video;
         applyDefaultVideoAudio(video);
-        pauseOtherVideos(video);
-        video.play().catch(() => {});
       }
     });
   }, { threshold: [0.5] });
+
+  // ── Video mount guard: no black gap between card and first frame ────────
+  // Evidence (screencast harness, scripts/xnow-screencast-flash-test.js,
+  // tile-flip-diff.js): when a feed video player mounts or swaps sources, X
+  // paints its embedded-player chrome BLACK for the first ~3 compositor
+  // frames before any content — poster image OR first video frame — paints:
+  // a coherent ~500x240 region observed flipping light→dark→light in
+  // lockstep with loadstart/loadeddata events at every static↔video post
+  // transition. Users see this as the jaggy black flash while scrolling.
+  // Fix: a freshly mounted (or src-swapped) <video> with no decodable frame
+  // stays unrendered — along with its nearest dark-surfaced player wrapper,
+  // which is the actual black rectangle (X's "Embedded video" chrome
+  // computes to rgb(0,0,0) even in the light theme) — until real content is
+  // ready (loadeddata/canplay/playing). NOTE: X's feed videos always carry a
+  // poster ATTRIBUTE, but the poster is not yet PAINTED at mount, so the
+  // attribute is no reason to exempt them (live probe: guard never engaged
+  // with the poster exemption; every sampled video had poster set).
+  // Layout, geometry and X's own autoplay engine are untouched; a 1.5 s
+  // timeout guarantees nothing can stay hidden if a stream stalls (prefer a
+  // visible player over a missing one).
+  const MOUNT_GUARD_ATTR = "data-xnow-mount-wait";
+  const MOUNT_GUARD_TIMEOUT_MS = 1500;
+  const mountGuardStats = { marked: 0, released: 0 };
+
+  function isDarkSurface(color) {
+    // rgb(r, g, b) with full alpha and low luminance = X's black player chrome
+    const m = color && color.match(/^rgb\((\d+), (\d+), (\d+)\)$/);
+    if (!m) return false;
+    return (0.299 * m[1] + 0.587 * m[2] + 0.114 * m[3]) <= 40;
+  }
+
+  function mountGuardRelease(el) {
+    if (el && el.getAttribute && el.getAttribute(MOUNT_GUARD_ATTR) !== null) {
+      el.removeAttribute(MOUNT_GUARD_ATTR);
+      mountGuardStats.released++;
+    }
+  }
+
+  function mountGuardReleaseTree(video) {
+    mountGuardRelease(video);
+    const host = video && video.__xnowGuardHost;
+    if (host) {
+      mountGuardRelease(host);
+      video.__xnowGuardHost = null;
+    }
+  }
+
+  function mountGuardMark(video, { force = false } = {}) {
+    if (!(video instanceof HTMLVideoElement)) return;
+    // The readyState gate only applies to fresh mounts: on loadstart/emptied
+    // re-arms (force), Chromium can still report the PREVIOUS stream's
+    // readyState (>=2) even though the element is about to tear down to
+    // frameless and paint black — skipping the mark there left a residual
+    // black-gap at recycled-player swaps (live A/B, confirm-run1 frames
+    // 268-270). Forced marks bypass the stale-frame check.
+    if (!force && video.readyState >= 2) return; // a frame is already decodable
+    if (video.getAttribute(MOUNT_GUARD_ATTR) !== null) return;
+    video.setAttribute(MOUNT_GUARD_ATTR, "1");
+    mountGuardStats.marked++;
+    // The video element is often transparent; the black rectangle users see
+    // is the player wrapper behind it. Hide the nearest ancestor whose own
+    // computed background is a solid dark surface (transparent ancestors are
+    // skipped — in dark theme the card is dark anyway and hiding is a no-op).
+    try {
+      let node = video.parentElement;
+      for (let depth = 0; node && depth < 4; depth++, node = node.parentElement) {
+        const bg = getComputedStyle(node).backgroundColor;
+        if (isDarkSurface(bg)) {
+          node.setAttribute(MOUNT_GUARD_ATTR, "1");
+          video.__xnowGuardHost = node;
+          break;
+        }
+      }
+    } catch (_) { /* getComputedStyle unavailable — element-level guard still on */ }
+    const release = () => mountGuardReleaseTree(video);
+    video.addEventListener("loadeddata", release, { once: true });
+    video.addEventListener("canplay", release, { once: true });
+    video.addEventListener("playing", release, { once: true });
+    window.setTimeout(release, MOUNT_GUARD_TIMEOUT_MS);
+  }
+
+  function mountGuardSweep(root) {
+    (root || document).querySelectorAll("video").forEach(mountGuardMark);
+  }
+
+  // Catch fresh player mounts (childList). Source swaps on recycled players
+  // are caught separately by the loadstart/emptied listeners below — X's
+  // virtualized feed REUSES the same <video> node across posts, so scroll
+  // transitions are attribute swaps, not insertions.
+  const mountGuardMO = new MutationObserver((muts) => {
+    for (const m of muts) {
+      if (m.type === "childList") {
+        m.addedNodes.forEach((n) => {
+          if (n instanceof HTMLVideoElement) mountGuardMark(n);
+          else if (n instanceof Element) {
+            if (n.tagName === "VIDEO") mountGuardMark(n);
+            else n.querySelectorAll && n.querySelectorAll("video").forEach(mountGuardMark);
+          }
+        });
+      }
+    }
+  });
+  const mountGuardRoot = document.body || document.documentElement;
+  if (mountGuardRoot) {
+    mountGuardMO.observe(mountGuardRoot, { childList: true, subtree: true });
+    mountGuardSweep(document);
+  }
+  // loadstart/emptied fire on recycled virtualized players when X swaps the
+  // post's media source. Chromium may still report the old stream's
+  // readyState here, so these re-arms FORCE the mark (bypass the gate):
+  // the element is about to tear down to frameless and paint its black
+  // chrome — exactly the flash class the guard exists to prevent.
+  ["loadstart", "emptied"].forEach((type) => {
+    document.addEventListener(type, (ev) => {
+      if (ev.target instanceof HTMLVideoElement) mountGuardMark(ev.target, { force: true });
+    }, true);
+  });
+
+  // Test/diagnostic surface (harness pattern: window.__xnow*)
+  window.__xnowVideoMountGuard = {
+    mark: mountGuardMark,
+    release: mountGuardReleaseTree,
+    sweep: mountGuardSweep,
+    stats: mountGuardStats,
+    ATTR: MOUNT_GUARD_ATTR,
+    TIMEOUT_MS: MOUNT_GUARD_TIMEOUT_MS,
+  };
 
   function linkFromTarget(target) {
     const element = elementFromTarget(target);
@@ -897,6 +1037,7 @@
   var _xnowPlayingAudio = null;
   var _xnowMutedVideo = null;
   var _xnowMutedByHide = false;
+  var _xnowLastRoute = "";
 
   window.__xnowActiveVideo = function () {
     if (state.activeVideo && state.activeVideo.isConnected) return state.activeVideo;
@@ -1003,10 +1144,48 @@
     try {
       if (document.hidden) window.__onWindowHidden();
       else window.__resumeIfNeeded();
+      // Hidden pages poll at the slow cadence; visibility flips re-arm it.
+      syncPollTick();
     } catch (error) {
       console.warn("X-Now visibility handler failed:", error);
     }
   });
+
+  // ── Theme background reporter (XNOWBG:r,g,b) ──────────────────────────
+  // The native window background is the color WebView2 paints for every frame
+  // the compositor has not rasterized yet (scroll tiles, restore frames). If
+  // it differs from X's REAL theme background, every raster gap flashes as a
+  // contrasting band — dark-on-light is maximally visible while scrolling.
+  // X resolves its theme asynchronously (server-driven), so we report the
+  // computed body background once it is a concrete color, and again whenever
+  // it changes. The native side re-syncs via set_background_color.
+  var _xnowLastThemeKey = null;
+  function reportThemeBackground() {
+    try {
+      var bg = getComputedStyle(document.body).backgroundColor;
+      if (!bg) return;
+      // A transparent body (rgba alpha < 1) means the theme is not resolved
+      // yet — reporting it would paint the native background black mid-light-
+      // theme (the exact flash class this reporter exists to prevent).
+      var alpha = bg.match(/^rgba\([^)]*,\s*([\d.]+)\)$/);
+      if (alpha && parseFloat(alpha[1]) < 1) return;
+      var m = bg.match(/rgba?\((\d+)[,\s]+(\d+)[,\s]+(\d+)/);
+      if (!m) return; // still transparent/undecided — keep the launch default
+      var key = m[1] + "," + m[2] + "," + m[3];
+      if (key === _xnowLastThemeKey) return;
+      _xnowLastThemeKey = key;
+      document.title = "XNOWBG:" + key;
+    } catch (error) {
+      console.warn("X-Now theme report failed:", error);
+    }
+  }
+  // X applies the theme some seconds after load; sample a few times, then on
+  // every route poll (cheap: one getComputedStyle per tick).
+  [400, 1500, 4000, 8000].forEach(delay => setTimeout(reportThemeBackground, delay));
+  setInterval(reportThemeBackground, 5000);
+  // Manual trigger for the regression harness (same pattern as the other
+  // __-prefixed page APIs the native side and tests drive directly).
+  window.__xnowReportThemeBackground = reportThemeBackground;
 
   function scanVideos() {
     document.querySelectorAll("video").forEach(video => {
@@ -1014,25 +1193,97 @@
       video.dataset.xnowObserved = "1";
       observer.observe(video);
       applyDefaultVideoAudio(video);
+      // Track X's own autoplay choice only. Do NOT pause the other videos
+      // here: a second enforcer raced X's player and glitched the feed at
+      // every static↔video transition (see the IntersectionObserver note).
       video.addEventListener("play", () => {
         state.activeVideo = video;
-        pauseOtherVideos(video);
       });
     });
   }
+
+  // ── Idle-aware route/handle polling ────────────────────────────────────
+  // SPA route changes re-render the DOM (and log the user in/out): a poll
+  // keeps handle detection and video scanning fresh. The old fixed 1 s
+  // setInterval fired a DOM query even while the user was idle or the window
+  // was hidden — pure battery/CPU waste. This adaptive tick runs at 1 s while
+  // the user is active, backs off to 5 s after 15 idle seconds, to 15 s after
+  // a minute idle, and to 30 s while the page is hidden; any input or a
+  // visible page re-arms the fast cadence instantly.
+  const POLL_ACTIVE_MS = 1000;
+  const POLL_IDLE_MS = 5000;
+  const POLL_DEEP_IDLE_MS = 15000;
+  const POLL_HIDDEN_MS = 30000;
+  const USER_IDLE_AFTER_MS = 15000;
+  const USER_DEEP_IDLE_AFTER_MS = 60000;
+  let _xnowLastActivity = Date.now();
+  let _xnowPollTimer = null;
+  let _xnowPollRunning = false;
+
+  function markUserActive() {
+    _xnowLastActivity = Date.now();
+    syncPollTick();
+  }
+
+  function pollIntervalMs() {
+    if (document.hidden) return POLL_HIDDEN_MS;
+    const idleFor = Date.now() - _xnowLastActivity;
+    if (idleFor >= USER_DEEP_IDLE_AFTER_MS) return POLL_DEEP_IDLE_MS;
+    if (idleFor >= USER_IDLE_AFTER_MS) return POLL_IDLE_MS;
+    return POLL_ACTIVE_MS;
+  }
+
+  function pollTick() {
+    _xnowPollTimer = null;
+    if (_xnowPollRunning) return; // a tick overran; the next arm re-checks
+    _xnowPollRunning = true;
+    try {
+      refreshHandle();
+      const currentRoute = window.location.href;
+      const lastRoute = _xnowLastRoute;
+      _xnowLastRoute = currentRoute;
+      if (currentRoute !== lastRoute) scheduleScan();
+    } catch (error) {
+      console.warn("X-Now route poll failed:", error);
+    } finally {
+      _xnowPollRunning = false;
+    }
+    armPollTick();
+  }
+
+  function armPollTick() {
+    if (_xnowPollTimer !== null) return;
+    _xnowPollTimer = window.setTimeout(pollTick, pollIntervalMs());
+  }
+
+  // Re-arm to the CURRENT cadence when activity or visibility changes: drop
+  // the pending slow tick so the next poll happens at the fast interval.
+  function syncPollTick() {
+    if (_xnowPollTimer === null) return;
+    window.clearTimeout(_xnowPollTimer);
+    _xnowPollTimer = null;
+    armPollTick();
+  }
+
+  window.addEventListener("pointerdown", markUserActive, { capture: true, passive: true });
+  window.addEventListener("keydown", markUserActive, { capture: true, passive: true });
+  window.addEventListener("wheel", markUserActive, { capture: true, passive: true });
+
+  // Debounced video rescan, shared by the MutationObserver, the route poll and
+  // (hoisted here) the adaptive tick above.
+  let scanTimer = null;
+  const scheduleScan = () => {
+    if (scanTimer !== null) return;
+    scanTimer = window.setTimeout(() => {
+      scanTimer = null;
+      scanVideos();
+    }, 120);
+  };
 
   function observeVideoChanges() {
     if (!document.documentElement) return;
     scanVideos();
 
-    let scanTimer = null;
-    const scheduleScan = () => {
-      if (scanTimer !== null) return;
-      scanTimer = window.setTimeout(() => {
-        scanTimer = null;
-        scanVideos();
-      }, 120);
-    };
     const nodeContainsVideo = node => {
       if (!(node instanceof Element) && !(node instanceof DocumentFragment)) return false;
       return (node instanceof Element && node.matches("video"))
@@ -1048,16 +1299,10 @@
       subtree: true
     });
 
-    // SPA route changes re-render the DOM (and log the user in/out): poll
-    // cheaply so handle detection and video scanning stay fresh.
-    let lastRoute = window.location.href;
-    window.setInterval(() => {
-      refreshHandle();
-      const currentRoute = window.location.href;
-      if (currentRoute === lastRoute) return;
-      lastRoute = currentRoute;
-      scheduleScan();
-    }, 1000);
+    // Adaptive cadence instead of the old fixed 1 s setInterval (see the
+    // idle-aware polling block above).
+    _xnowLastRoute = window.location.href;
+    armPollTick();
   }
 
   if (document.documentElement) {

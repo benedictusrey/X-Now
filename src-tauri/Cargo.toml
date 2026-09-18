@@ -2,7 +2,7 @@
 name = "x-now"
 version = "2.1.0"
 description = "X-Now Desktop Client"
-authors = ["Benedictus"]
+authors = ["Benedictus Reynaldo Hartanto (@benedictusrey) <https://github.com/benedictusrey>"]
 edition = "2021"
 
 [lib]

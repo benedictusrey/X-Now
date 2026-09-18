@@ -1,4 +1,9 @@
+// Copyright (c) 2026 Benedictus Reynaldo Hartanto (@benedictusrey). All rights reserved.
+// X-Now — High-performance desktop client for X (https://github.com/benedictusrey/X-Now)
+// Licensed under the MIT License.
+
 use std::error::Error;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use base64::Engine;
 use tauri::{
@@ -294,7 +299,7 @@ const ABOUT_JS: &str = r##"(function() {
     'color:#fff;font-size:0.85rem;font-weight:600;line-height:1.5;margin:0 0 1.1rem;');
   built.appendChild(document.createTextNode('Built with \u2764\ufe0f by '));
   var authorLink = document.createElement('a');
-  authorLink.textContent = '@benedictusrey';
+  authorLink.textContent = 'Benedictus Reynaldo Hartanto (@benedictusrey)';
   authorLink.href = 'https://github.com/benedictusrey';
   authorLink.style.cssText = 'color:#1D9BF0;text-decoration:none;cursor:pointer;';
   authorLink.onclick = function(e) {
@@ -340,6 +345,19 @@ fn active_x(app: &AppHandle) -> Option<tauri::WebviewWindow> {
     app.get_webview_window("x")
 }
 
+/// Current page zoom as percent × 10 (1000 = 100%). Tracked in Rust because
+/// wry/Tauri expose only `set_zoom` (no getter).
+///
+/// This REPLACED the old `document.body.style.zoom` CSS hack: that transform
+/// scaled X's flow layout while X's fixed-position overlays (menus, dialogs,
+/// toasts) and already-composited video layers did NOT scale — the source of
+/// misplaced/ghosted "glitching" pixels after every View ▸ Zoom step. The
+/// webview engine zoom scales every layer consistently.
+static PAGE_ZOOM_PCT10: AtomicU32 = AtomicU32::new(1000);
+const ZOOM_STEP_PCT10: u32 = 100;
+const MIN_ZOOM_PCT10: u32 = 500;
+const MAX_ZOOM_PCT10: u32 = 3000;
+
 /// The restore-vs-hide rule used by both the Show/Hide menu item and a tray
 /// icon click. A minimized window is still "visible" per Win32 — so restore
 /// it whenever it is minimized, hidden, or merely unfocused (the user clicked
@@ -354,9 +372,12 @@ fn toggle_show_hide(app: &AppHandle) {
             let _ = window.unminimize();
             let _ = window.show();
             let _ = window.set_focus();
+            // Wake the (idle-aware) watchdog so the resume media pass runs NOW.
+            crate::wake_watchdog();
         } else {
             let _ = window.eval("if (window.__onWindowHidden) window.__onWindowHidden();");
             let _ = window.hide();
+            crate::wake_watchdog();
         }
     } else {
         launch_x_in_background(app);
@@ -493,21 +514,28 @@ pub(crate) fn run_action(app: &AppHandle, action: &str) {
         }
         "zoom_in" => {
             if let Some(window) = active_x(app) {
-                let _ = window.eval(
-                    "document.body.style.zoom = (parseFloat(document.body.style.zoom || '1') + 0.1).toFixed(1);",
-                );
+                let next = PAGE_ZOOM_PCT10
+                    .load(Ordering::Relaxed)
+                    .min(MAX_ZOOM_PCT10 - ZOOM_STEP_PCT10)
+                    + ZOOM_STEP_PCT10;
+                PAGE_ZOOM_PCT10.store(next, Ordering::Relaxed);
+                let _ = window.set_zoom(next as f64 / 1000.0);
             }
         }
         "zoom_out" => {
             if let Some(window) = active_x(app) {
-                let _ = window.eval(
-                    "document.body.style.zoom = Math.max(0.5, (parseFloat(document.body.style.zoom || '1') - 0.1)).toFixed(1);",
-                );
+                let next = PAGE_ZOOM_PCT10
+                    .load(Ordering::Relaxed)
+                    .max(MIN_ZOOM_PCT10 + ZOOM_STEP_PCT10)
+                    - ZOOM_STEP_PCT10;
+                PAGE_ZOOM_PCT10.store(next, Ordering::Relaxed);
+                let _ = window.set_zoom(next as f64 / 1000.0);
             }
         }
         "zoom_reset" => {
             if let Some(window) = active_x(app) {
-                let _ = window.eval("document.body.style.zoom = '1';");
+                PAGE_ZOOM_PCT10.store(1000, Ordering::Relaxed);
+                let _ = window.set_zoom(1.0);
             }
         }
         "clear_mem" => {

@@ -10,6 +10,17 @@ X-Now v2.1.0 refines the native desktop layer around the official X website. The
 
 ## What's new
 
+### Rendering stability: no more bleached windows, black flash bands, or scroll flashing
+
+v2.1.0 also ships a set of WebView2 rendering fixes (documented in depth in `docs/BUILD_AND_FIXES.md`):
+
+- The Chromium occlusion tracker is disabled for the app's webview, so video-heavy feeds can no longer leave the restored window bleached.
+- DirectComposition video overlay planes are disabled, eliminating one-frame black bands around videos while scrolling or after restore/resize.
+- The native background is now **theme-adaptive**: the page reports X's real theme color (`XNOWBG` protocol) and the app re-syncs the WebView2 background at runtime, so unpainted scroll/restore frames fill with the same color as the content instead of flashing as a contrasting band.
+- A **video mount guard** eliminates the last "shocking" flash class: X's player chrome paints black for the first few frames at every static↔video post transition (before poster or first video frame is ready); the app now hides the fresh player until its first frame decodes, verified frame-by-frame with a CDP screencast harness. This includes recycled-player src swaps, which X's virtualized feed performs constantly while scrolling.
+- The playback watchdog is event-driven (window events wake it instantly, 5 s fallback poll), fixing a restore-time pause race and cutting idle battery/CPU cost (~6× fewer OS wakeups while hidden in the tray).
+- Every launch logs its effective WebView2 configuration, and per-launch toggles (`--no-occlusion-fix`, `--no-gpu-video-overlays-fix`, `--webview-default`, `--webview-args`, `--webview-diagnostics`) allow clean bisecting of any rendering regression.
+
 ### Readable typography inside X
 
 - The post composer and reply boxes use **15px** text.
@@ -40,7 +51,7 @@ The refreshed icon set in `icons/` now covers the application surfaces that user
 - Windows NSIS installer and uninstaller identity through `icon.ico`.
 - Native tray-menu glyphs for navigation and tools.
 
-The release includes both `icon.ico` and `icon.png` in the Azure release artifact's `branding/` folder for reference and future packaging work.
+The repository includes the complete master icon kit (`icons/`) for reference and future packaging work.
 
 ### A more useful About card
 
@@ -70,15 +81,15 @@ X-Now v2.1.0 retains the desktop features introduced in v2.0.0:
 
 ## Installer packages
 
-The v2.1.0 Azure pipeline builds native packages in separate platform jobs, then assembles one combined download.
+The v2.1.0 GitHub Actions release pipeline builds native packages in parallel across Windows, macOS, and Linux:
 
 | Platform | Package | Target and notes |
 |---|---|---|
-| Windows | `.exe` NSIS and `.msi` WiX | x64; Windows 10/11; Edge WebView2 Runtime |
+| Windows | `.exe` NSIS, `.msi` WiX, and `.exe` portable | x64; Windows 10/11; Edge WebView2 Runtime |
 | macOS | One universal `.dmg` | arm64 plus x86_64; macOS 11 or newer |
 | Linux | `.AppImage`, `.deb`, and `.rpm` | x64; WebKitGTK 4.1 runtime |
 
-The pipeline validates the v2.1.0 version in `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, and `src-tauri/Cargo.lock`. It checks the expected package types, verifies both macOS slices with `lipo`, and publishes SHA-256 manifests.
+The pipeline validates the v2.1.0 version in `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, and `src-tauri/Cargo.lock`. It checks the expected package types, verifies both macOS slices with `lipo`, and publishes verified SHA-256 manifests.
 
 ## Installation
 
@@ -113,7 +124,7 @@ For `.deb` or `.rpm`, use your distribution's package installer. The runtime nee
 - X-Now handles X content inside WebView2 on Windows and WebKit on macOS and Linux.
 - Media saving uses URLs that X exposes to the page. X-Now does not bypass X access controls.
 - Downloaded media belongs to the post's author. Follow X's terms, local law, and the rights attached to the media.
-- The current Azure package is unsigned. Windows SmartScreen and macOS Gatekeeper may display trust warnings until signing and notarization are added.
+- The current release packages are unsigned. Windows SmartScreen and macOS Gatekeeper may display trust warnings until code signing and notarization certificates are configured.
 - Verify downloaded installers with the published `SHA256SUMS.txt` file before installing.
 
 ## Related documentation
@@ -121,7 +132,7 @@ For `.deb` or `.rpm`, use your distribution's package installer. The runtime nee
 - [README.md](README.md): product overview, feature guide, and user installation steps.
 - [CHANGELOG.md](CHANGELOG.md): version-by-version technical history.
 - [SECURITY.md](SECURITY.md): privacy model, Tauri capabilities, and vulnerability reporting.
-- [docs/RELEASE_PIPELINE.md](docs/RELEASE_PIPELINE.md): Azure DevOps setup, artifact download, and GitHub publishing steps.
+- [docs/RELEASE_PIPELINE.md](docs/RELEASE_PIPELINE.md): GitHub Actions workflow guide, artifact verification, and release steps.
 
 ---
 
