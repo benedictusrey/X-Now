@@ -29,3 +29,6 @@ Thumbs.db
 
 # Known-good release snapshots (local rollback reference, never committed)
 /backup/
+
+# Deprecated/original assets backup (local reference only, never committed)
+/docs/assets/bad_ori/

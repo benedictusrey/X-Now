@@ -56,21 +56,21 @@
 Say goodbye to the heavy memory usage of standard web browsers. Built entirely on Rust and Tauri v2, X-Now is designed to be incredibly lightweight. It actively manages background resources, meaning your computer stays blazing fast and responsive — even during endless scrolling sessions. Your X feed, delivered at native speed.
 
 <p align="center">
-  <img src="docs/assets/xnow-performance.jpg" alt="Performance capabilities of X-Now" width="100%"/>
+  <img src="docs/assets/xnow-performance.png" alt="Performance capabilities of X-Now" width="100%"/>
 </p>
 
 #### 2. Immersive & Distraction-Free Aesthetics
 X-Now strips away the browser clutter to give you a pure, edge-to-edge experience with native styling. Videos are optimized to play smoothly as you scroll — pausing instantly when out of view to protect your RAM. The result: a cinematic, browser-free timeline session.
 
 <p align="center">
-  <img src="docs/assets/xnow-autoplay.jpg" alt="X-Now immersive video autoplay" width="100%"/>
+  <img src="docs/assets/xnow-autoplay.png" alt="X-Now immersive video autoplay" width="100%"/>
 </p>
 
 #### 3. Deep Operating System Integration
 Why open a browser tab when you can command everything from your taskbar? X-Now lives in your OS like a true native application. Close it and it keeps living in your system tray; minimize it and the audio stops — guaranteed. Right-click images and videos to save them natively to `Downloads\X-Now`, or pin the window above everything with one tray toggle.
 
 <p align="center">
-  <img src="docs/assets/xnow-tray.jpg" alt="X-Now system tray integration" width="100%"/>
+  <img src="docs/assets/xnow-tray.png" alt="X-Now system tray integration" width="100%"/>
 </p>
 
 ---
