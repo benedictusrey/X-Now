@@ -29,7 +29,7 @@ function arg(name, fallback) {
 const REPO = path.resolve(__dirname, '..');
 const EXE = arg('--exe', path.join(REPO, 'src-tauri', 'target', 'release', 'X-Now.exe'));
 const OUT = arg('--out', path.join(REPO, 'src-tauri', 'target', 'flash-smoke'));
-const LABEL = process.argv[process.argv.indexOf('--label') + 1] || 'run';
+const LABEL = arg('--label', 'run');
 const PORT = 9333;
 // A row counts as a FLASH BAND when it is uniformly dark (mean luminance < 60)
 // or uniformly white (mean > 235 AND near-zero variance) while the page's own
@@ -72,8 +72,8 @@ function analyzeFrame(pngBuffer) {
   console.log(`[smoke] launching ${EXE} with CDP on :${PORT}`);
 
   // WebView2 does NOT forward host-exe argv; browser flags go through the
-  // WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS environment variable (appended to
-  // whatever the app composes programmatically).
+  // XNOW_WEBVIEW_ARGS environment variable. It replaces the app's default list, so the
+  // shipped rendering flags are passed here too.
   //
   // A previously running X-Now holds the WebView2 user-data-folder lock, so
   // any other instance fails to create its environment. Terminate it first;
@@ -90,7 +90,7 @@ function analyzeFrame(pngBuffer) {
     detached: false,
     env: {
       ...process.env,
-      WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${PORT}`,
+      XNOW_WEBVIEW_ARGS: `--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,CalculateNativeWinOcclusion --disable-direct-composition-video-overlays --remote-debugging-port=${PORT}`,
     },
   });
   proc.on('exit', (code) => console.log(`[smoke] X-Now exited early with code ${code}`));

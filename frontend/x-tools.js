@@ -26,22 +26,74 @@
   const state = {
     menu: null,
     toast: null,
+    progress: null,
     activeVideo: null,
     videoAudioUnlocked: false
   };
 
   const style = document.createElement("style");
   style.textContent = `
+    /* ── X-Now overlay tokens. The page theme sets data-xnow-theme on <html>
+       (see applyPageTheme); the values are X's own palette per theme. ── */
+    :root {
+      --xnow-bg: #000000;
+      --xnow-raised: #16181c;
+      --xnow-border: #2f3336;
+      --xnow-text: #e7e9ea;
+      --xnow-muted: #71767b;
+      --xnow-accent: #1d9bf0;
+      --xnow-danger: #f4212e;
+      --xnow-success: #00ba7c;
+      --xnow-hover: rgba(231, 233, 234, 0.1);
+      --xnow-accent-soft: rgba(29, 155, 240, 0.16);
+      --xnow-sub: #8b98a5;
+      --xnow-track: #71767b;
+      --xnow-radius-sm: 8px;
+      --xnow-radius-md: 12px;
+      --xnow-radius-lg: 16px;
+      --xnow-ease: cubic-bezier(0.2, 0, 0, 1);
+      --xnow-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+    }
+    :root[data-xnow-theme="dim"] {
+      --xnow-bg: #15202b;
+      --xnow-raised: #192734;
+      --xnow-border: #38444d;
+    }
+    :root[data-xnow-theme="light"] {
+      --xnow-bg: #ffffff;
+      --xnow-raised: #f7f9f9;
+      --xnow-sub: #536471;
+      --xnow-track: #536471;
+      --xnow-accent: #1a8cd8;
+      --xnow-danger: #d7192a;
+      --xnow-success: #00875a;
+      --xnow-border: #cfd9de;
+      --xnow-text: #0f1419;
+      --xnow-muted: #536471;
+      --xnow-hover: rgba(15, 20, 25, 0.08);
+      --xnow-accent-soft: rgba(26, 140, 216, 0.12);
+      --xnow-shadow: 0 12px 32px rgba(15, 20, 25, 0.18);
+    }
+
+    /* Every X-Now overlay control gets the same keyboard ring. */
+    .xnow-ui :focus-visible {
+      outline: 2px solid var(--xnow-accent);
+      outline-offset: 2px;
+    }
+
     .xnow-media-menu {
       position: fixed;
       z-index: 2147483647;
       min-width: 230px;
       padding: 6px;
-      border: 1px solid rgba(255, 255, 255, 0.18);
-      border-radius: 12px;
-      background: rgba(15, 20, 25, 0.97);
-      box-shadow: 0 16px 45px rgba(0, 0, 0, 0.35);
+      border: 1px solid var(--xnow-border);
+      border-radius: var(--xnow-radius-md);
+      background: var(--xnow-raised);
+      color: var(--xnow-text);
+      box-shadow: var(--xnow-shadow);
       font: 13px "Segoe UI", Arial, sans-serif;
+      transform-origin: top left;
+      animation: xnow-pop 120ms var(--xnow-ease);
     }
 
     .xnow-media-menu button {
@@ -49,40 +101,61 @@
       width: 100%;
       padding: 9px 11px;
       border: 0;
-      border-radius: 8px;
+      border-radius: var(--xnow-radius-sm);
       background: transparent;
-      color: #fff;
+      color: var(--xnow-text);
       text-align: left;
       cursor: pointer;
+      transition: background-color 120ms var(--xnow-ease);
     }
 
-    .xnow-media-menu button:hover {
-      background: rgba(29, 155, 240, 0.25);
+    .xnow-media-menu button:hover,
+    .xnow-media-menu button:focus-visible {
+      background: var(--xnow-accent-soft);
     }
 
+    @keyframes xnow-pop {
+      from { opacity: 0; transform: scale(0.97); }
+      to { opacity: 1; transform: none; }
+    }
+
+    /* Bottom-centre: X floats its Grok and compose buttons at the bottom-right. */
     .xnow-toast {
       position: fixed;
-      right: 16px;
-      bottom: 16px;
+      left: 0;
+      right: 0;
+      margin: 0 auto;
+      width: fit-content;
+      bottom: 20px;
       z-index: 2147483647;
       display: flex;
       align-items: center;
       gap: 11px;
       max-width: 380px;
       padding: 12px 16px;
-      border: 1px solid rgba(255, 255, 255, 0.14);
-      border-radius: 14px;
-      background: rgba(15, 20, 25, 0.95);
-      box-shadow: 0 12px 34px rgba(0, 0, 0, 0.45);
+      border: 1px solid var(--xnow-border);
+      border-radius: var(--xnow-radius-md);
+      background: var(--xnow-raised);
+      box-shadow: var(--xnow-shadow);
       font: 13px "Segoe UI", Arial, sans-serif;
-      color: #fff;
-      animation: xnow-toast-in 0.25s ease-out;
+      color: var(--xnow-text);
+      animation: xnow-toast-in 220ms var(--xnow-ease);
       pointer-events: auto;
     }
 
+    .xnow-toast.is-leaving {
+      animation: xnow-toast-out 160ms var(--xnow-ease) forwards;
+      pointer-events: none;
+    }
+
     @keyframes xnow-toast-in {
-      from { opacity: 0; transform: translateY(14px); }
+      from { opacity: 0; transform: translateY(12px); }
       to { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes xnow-toast-out {
+      from { opacity: 1; transform: translateY(0); }
+      to { opacity: 0; transform: translateY(8px); }
     }
 
     .xnow-toast-icon {
@@ -97,21 +170,41 @@
       font-weight: 700;
     }
 
-    .xnow-toast-icon.success { background: rgba(0, 186, 124, 0.2); color: #00ba7c; }
-    .xnow-toast-icon.error { background: rgba(244, 33, 46, 0.2); color: #f4212e; }
-    .xnow-toast-icon.info { background: rgba(29, 155, 240, 0.2); color: #1d9bf0; }
+    .xnow-toast-icon.success { background: rgba(0, 186, 124, 0.2); color: var(--xnow-success); }
+    .xnow-toast-icon.error { background: rgba(244, 33, 46, 0.2); color: var(--xnow-danger); }
+    .xnow-toast-icon.info { background: rgba(29, 155, 240, 0.2); color: var(--xnow-accent); }
 
     .xnow-toast-spinner {
       width: 14px;
       height: 14px;
       border: 2px solid rgba(29, 155, 240, 0.3);
-      border-top-color: #1d9bf0;
+      border-top-color: var(--xnow-accent);
       border-radius: 50%;
       animation: xnow-toast-spin 0.8s linear infinite;
     }
 
     @keyframes xnow-toast-spin {
       to { transform: rotate(360deg); }
+    }
+
+    /* Reduce motion: the OS preference, or the Settings "Motion" choice.
+       "full" opts back in to animation even when the OS asks for less. */
+    html[data-xnow-motion="reduce"] .xnow-toast,
+    html[data-xnow-motion="reduce"] .xnow-media-menu {
+      animation: none !important;
+      transition: none !important;
+    }
+    html[data-xnow-motion="reduce"] .xnow-toast-spinner {
+      animation-duration: 2.4s !important;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      html:not([data-xnow-motion="full"]) .xnow-toast,
+      html:not([data-xnow-motion="full"]) .xnow-media-menu {
+        animation: none;
+      }
+      html:not([data-xnow-motion="full"]) .xnow-toast-spinner {
+        animation-duration: 2.4s;
+      }
     }
 
     .xnow-toast-title {
@@ -124,7 +217,7 @@
       margin-top: 2px;
       font-size: 12px;
       line-height: 1.3;
-      color: rgba(255, 255, 255, 0.72);
+      color: var(--xnow-muted);
       word-break: break-all;
     }
 
@@ -254,26 +347,34 @@
       || /^\/(?:i\/video\/|[^/]+\/status\/\d+\/video\/)/i.test(window.location.pathname);
   }
 
+  // Volumes come from Settings (x-settings.js). Until those load, the shipped
+  // defaults apply.
   function defaultVolumeForVideo(video) {
-    return isStandaloneVideo(video) ? 0.5 : 0.2;
+    const s = window.__xnowSettings;
+    return isStandaloneVideo(video)
+      ? (s?.standaloneVolume ?? 50) / 100
+      : (s?.feedVolume ?? 20) / 100;
+  }
+
+  // Overlay palette follows the page: black, dim or light, by background luminance.
+  function applyPageTheme(r, g, b) {
+    const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+    document.documentElement.dataset.xnowTheme =
+      luminance < 0.03 ? "black" : luminance < 0.5 ? "dim" : "light";
   }
 
   function applyDefaultVideoAudio(video) {
     if (!(video instanceof HTMLVideoElement)) return;
-    const profile = isStandaloneVideo(video)
-      ? "standalone:0.5"
-      : (state.videoAudioUnlocked ? "feed:unlocked" : "feed:locked");
+    const standalone = isStandaloneVideo(video);
+    const volume = defaultVolumeForVideo(video);
+    // The profile includes the volume, so a changed Settings value reaches videos already on the page.
+    const profile = `${standalone ? "standalone" : "feed"}:${volume}:${standalone || state.videoAudioUnlocked ? "open" : "locked"}`;
     if (video.dataset.xnowAudioProfile === profile) return;
     try {
-      if (isStandaloneVideo(video)) {
-        // Lightbox / standalone video pages play at 50% volume.
-        video.volume = defaultVolumeForVideo(video);
-      } else if (!state.videoAudioUnlocked) {
-        // Feed videos follow X's own muted-autoplay rule — until the user has
-        // interacted with any media, after which X's own mute state is the
-        // authority and we never fight it.
-        video.muted = true;
-      }
+      video.volume = volume;
+      // Feed videos follow X's own muted-autoplay rule until the user has interacted
+      // with any media. After that, X's mute state is the authority and X-Now never fights it.
+      if (!standalone && !state.videoAudioUnlocked) video.muted = true;
       video.dataset.xnowAudioProfile = profile;
     } catch (error) {
       console.warn("X-Now could not apply the video audio default:", error);
@@ -690,13 +791,25 @@
     window.open(url, "_blank", "noopener,noreferrer");
   }
 
+  // Fade the card out, then remove it. The timer guarantees removal even when
+  // animations are disabled.
+  function leaveToast(el) {
+    if (!el || el.classList.contains("is-leaving")) return;
+    el.classList.add("is-leaving");
+    window.setTimeout(() => el.remove(), 170);
+  }
+
   // Bottom-right notification card: icon + title + optional sub-line.
   // kind: "spinner" (sticky, no auto-dismiss) | "success" | "error" | "info".
   function renderToast({ title, sub = "", kind = "success", sticky = false }) {
-    state.toast?.remove();
+    // A progress card is replaced only by another progress card, or dismissed
+    // when its save ends, so an unrelated toast cannot hide it mid-download.
+    if (sticky) state.progress?.remove();
+    else leaveToast(state.toast);
     const toast = document.createElement("div");
-    toast.className = "xnow-toast";
-    toast.setAttribute("role", "status");
+    toast.className = "xnow-toast xnow-ui";
+    // Errors interrupt assistive tech; other states are polite status updates.
+    toast.setAttribute("role", kind === "error" ? "alert" : "status");
 
     const icon = document.createElement("div");
     icon.className = `xnow-toast-icon ${kind}`;
@@ -723,15 +836,17 @@
 
     toast.append(icon, body);
     document.body.appendChild(toast);
-    state.toast = toast;
-    if (!sticky) {
-      window.setTimeout(() => {
-        if (state.toast === toast) {
-          toast.remove();
-          state.toast = null;
-        }
-      }, 4500);
+    if (sticky) {
+      state.progress = toast;
+      return toast;
     }
+    state.toast = toast;
+    window.setTimeout(() => {
+      if (state.toast === toast) {
+        state.toast = null;
+        leaveToast(toast);
+      }
+    }, 4500);
     return toast;
   }
 
@@ -746,7 +861,7 @@
     const folder = String(savedPath || "").replace(/[\\/][^\\/]+$/, "");
     renderToast({
       title: `Saved ${kind} ✓`,
-      sub: folder || "Downloads\\X-Now",
+      sub: folder || "the X-Now folder in Downloads",
       kind: "success"
     });
   }
@@ -791,7 +906,7 @@
       console.warn("X-Now could not copy the post link:", error);
     }
 
-    let downloadFolder = "Downloads\\X-Now";
+    let downloadFolder = "the X-Now folder in Downloads";
     if (hasNativeBridge()) {
       try {
         downloadFolder = await nativeInvoke("prepare_download_folder");
@@ -822,7 +937,30 @@
     }
   }
 
+  // The progress card is dismissed however the save ends.
   async function saveMedia(media) {
+    try {
+      await saveMediaInner(media);
+    } finally {
+      dismissProgress();
+    }
+  }
+
+  function dismissProgress() {
+    state.progress?.remove();
+    state.progress = null;
+  }
+
+  // The Cobalt hand-off is the video fallback. The Settings switch can turn it off.
+  async function handOffVideo(media) {
+    if (window.__xnowSettings?.cobaltFallback === false) {
+      showToast("X did not expose a direct video URL. Open the post in your browser to save it.", "info");
+      return;
+    }
+    await openCobaltForVideo(media);
+  }
+
+  async function saveMediaInner(media) {
     const kind = media instanceof HTMLVideoElement ? "video" : "image";
     const postUrl = postUrlForMedia(media);
     const referer = postUrl || "https://x.com/";
@@ -836,7 +974,7 @@
       // No direct URL at all (e.g. blob-only MSE streams) — the IG-Now method
       // still gets the video: copy the post link + open Cobalt.
       if (kind === "video") {
-        await openCobaltForVideo(media);
+        await handOffVideo(media);
         return;
       }
       showToast("X did not expose a direct image URL; try opening the post in your browser.", "info");
@@ -873,7 +1011,7 @@
 
     // Every direct path failed — hand the video off to Cobalt (IG-Now method).
     if (kind === "video") {
-      await openCobaltForVideo(media);
+      await handOffVideo(media);
       return;
     }
     const reason = lastError || "all methods failed";
@@ -917,11 +1055,12 @@
   function showMenu(items, x, y) {
     closeMenu();
     const menu = document.createElement("div");
-    menu.className = "xnow-media-menu";
+    menu.className = "xnow-media-menu xnow-ui";
     menu.setAttribute("role", "menu");
     items.forEach(({ label, action }) => {
       const button = document.createElement("button");
       button.type = "button";
+      button.setAttribute("role", "menuitem");
       button.textContent = label;
       button.addEventListener("click", async event => {
         event.preventDefault();
@@ -937,12 +1076,30 @@
     const bounds = menu.getBoundingClientRect();
     menu.style.left = `${Math.max(8, Math.min(x, window.innerWidth - bounds.width - 8))}px`;
     menu.style.top = `${Math.max(8, Math.min(y, window.innerHeight - bounds.height - 8))}px`;
+    // Arrow keys, Home and End move between items; the first item takes focus.
+    menu.addEventListener("keydown", event => {
+      const buttons = Array.from(menu.querySelectorAll("button"));
+      const index = buttons.indexOf(document.activeElement);
+      const target = { ArrowDown: index + 1, ArrowUp: index - 1, Home: 0, End: buttons.length - 1 }[event.key];
+      if (target === undefined) return;
+      event.preventDefault();
+      buttons[(target + buttons.length) % buttons.length].focus();
+    });
+    menu.querySelector("button")?.focus({ preventScroll: true });
     state.menu = menu;
   }
 
   document.addEventListener("click", event => {
     if (elementFromTarget(event.target)?.closest?.(".xnow-media-menu")) return;
     closeMenu();
+  }, true);
+
+  // A fixed-position menu must not float away from its target: close it on
+  // scroll, resize and Escape.
+  window.addEventListener("scroll", closeMenu, { capture: true, passive: true });
+  window.addEventListener("resize", closeMenu, { passive: true });
+  document.addEventListener("keydown", event => {
+    if (event.key === "Escape") closeMenu();
   }, true);
 
   // ── External link handoff ─────────────────────────────────────────────────
@@ -984,7 +1141,10 @@
   document.addEventListener("contextmenu", event => {
     const media = mediaFromTarget(event.target) || mediaAtPoint(event.clientX, event.clientY);
     const link = media ? null : (linkFromTarget(event.target) || linkAtPoint(event.clientX, event.clientY));
-    if (!media && !link) return;
+    if (!media && !link) {
+      closeMenu(); // a right-click elsewhere must not leave the old menu open
+      return;
+    }
 
     event.preventDefault();
     event.stopImmediatePropagation();
@@ -992,7 +1152,7 @@
       const kind = media instanceof HTMLVideoElement ? "video" : "image";
       showMenu([
         {
-          label: `Save ${kind} to Downloads\\X-Now`,
+          label: `Save ${kind} to the X-Now folder`,
           action: () => saveMedia(media)
         },
         {
@@ -1011,14 +1171,29 @@
   // X's sidebar profile tab is an <a data-testid="AppTabBar_Profile_Link">
   // whose href is "/<handle>". The Rust side watches document.title for the
   // "XNOW:" prefix and rewrites the native title.
+  // The link is absent for a moment while X re-renders; only a longer absence
+  // is a sign-out. Rust closes the sign-in popups when a sign-in follows one.
+  const SIGNED_OUT_AFTER_MS = 5000;
   let lastHandle = null;
+  let absentSince = 0;
+  let reportedOut = false;
   function refreshHandle() {
     try {
       const link = document.querySelector('a[data-testid="AppTabBar_Profile_Link"]');
       const handle = link?.getAttribute?.("href")?.replace(/^\//, "").replace(/\/$/, "") || "";
-      if (!handle || handle === lastHandle) return;
-      lastHandle = handle;
-      document.title = `XNOW:${handle}`;
+      if (handle) {
+        absentSince = 0;
+        reportedOut = false;
+        if (handle === lastHandle) return;
+        lastHandle = handle;
+        document.title = `XNOW:${handle}`;
+        return;
+      }
+      if (!absentSince) absentSince = Date.now();
+      if (reportedOut || Date.now() - absentSince < SIGNED_OUT_AFTER_MS) return;
+      reportedOut = true;
+      lastHandle = null;
+      document.title = "XNOWOUT:";
     } catch (error) {
       console.warn("X-Now handle refresh failed:", error);
     }
@@ -1047,6 +1222,10 @@
 
   window.__onWindowHidden = function () {
     try {
+      // Pause and mute follow Settings, whichever path hid the window (tray, close or minimize).
+      const settings = window.__xnowSettings || {};
+      if (settings.pauseOnMinimize === false) return "skipped";
+      const mute = settings.muteOnMinimize !== false;
       const videos = Array.from(document.querySelectorAll("video"));
       const audios = Array.from(document.querySelectorAll("audio"));
       const newlyPlaying = videos.find(v => !v.paused) || null;
@@ -1062,7 +1241,7 @@
       // Mute-backup applies ONLY to the video that was actually playing —
       // never to a paused element (a stale mute would silence a later
       // autoplay after restore). The OS session mute covers everything else.
-      if (_xnowPlayingVideo && !_xnowMutedVideo) {
+      if (mute && _xnowPlayingVideo && !_xnowMutedVideo) {
         _xnowMutedByHide = _xnowPlayingVideo.muted;
         _xnowMutedVideo = _xnowPlayingVideo;
         _xnowMutedVideo.muted = true; // instant silence; the OS session mute is the guarantee
@@ -1174,6 +1353,7 @@
       var key = m[1] + "," + m[2] + "," + m[3];
       if (key === _xnowLastThemeKey) return;
       _xnowLastThemeKey = key;
+      applyPageTheme(+m[1], +m[2], +m[3]);
       document.title = "XNOWBG:" + key;
     } catch (error) {
       console.warn("X-Now theme report failed:", error);
@@ -1186,6 +1366,14 @@
   // Manual trigger for the regression harness (same pattern as the other
   // __-prefixed page APIs the native side and tests drive directly).
   window.__xnowReportThemeBackground = reportThemeBackground;
+
+  // In-page route change for the tray and the page scripts. X's router renders the
+  // new path, and the document is not reloaded.
+  window.__xnowNavigate = function (path) {
+    if (location.pathname === path) return;
+    history.pushState({}, "", path);
+    window.dispatchEvent(new PopStateEvent("popstate", { state: history.state }));
+  };
 
   function scanVideos() {
     document.querySelectorAll("video").forEach(video => {
@@ -1290,9 +1478,31 @@
         || Boolean(node.querySelector("video"));
     };
 
+    // The feed recycles and removes <video> nodes constantly. Stop observing a
+    // removed one and drop every reference to it, or the feed's whole history
+    // of video elements stays alive in the intersection observer.
+    const forgetVideo = video => {
+      if (video.isConnected) return;
+      observer.unobserve(video);
+      delete video.dataset.xnowObserved;
+      if (state.activeVideo === video) state.activeVideo = null;
+      if (_xnowPlayingVideo === video) _xnowPlayingVideo = null;
+      if (_xnowMutedVideo === video) {
+        _xnowMutedVideo = null;
+        _xnowMutedByHide = false;
+      }
+    };
+
     new MutationObserver(mutations => {
-      const videoWasAdded = mutations.some(mutation => mutation.type === "childList"
-        && Array.from(mutation.addedNodes).some(nodeContainsVideo));
+      let videoWasAdded = false;
+      for (const mutation of mutations) {
+        if (mutation.type !== "childList") continue;
+        mutation.removedNodes.forEach(node => {
+          if (node instanceof HTMLVideoElement) forgetVideo(node);
+          else if (node instanceof Element) node.querySelectorAll("video").forEach(forgetVideo);
+        });
+        if (Array.from(mutation.addedNodes).some(nodeContainsVideo)) videoWasAdded = true;
+      }
       if (videoWasAdded) scheduleScan();
     }).observe(document.documentElement, {
       childList: true,

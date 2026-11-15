@@ -50,7 +50,7 @@ The following core systems have been iteratively refined and battle-tested. AI a
 5. **Target-Gated Windows Audio Dependencies**:
    - In `src-tauri/Cargo.toml`, the `windows` crate and Core Audio session mute logic (`audio.rs`) **must remain target-gated** under `[target.'cfg(windows)'.dependencies]`. Ungating it breaks Linux and macOS CI builds.
 6. **Tauri ACL Origin Declarations**:
-   - Because `x.com` is a remote origin, all invokable commands (`open_external_url`, `save_media_bytes`, `download_media`, `prepare_download_folder`) must remain declared in `src-tauri/build.rs` and granted in `src-tauri/capabilities/remote.json`. Without this, Tauri v2 blocks all media saving.
+   - Because `x.com` is a remote origin, every invokable command (the list in `src-tauri/build.rs`) must remain declared there and granted in `src-tauri/capabilities/remote.json`. Without this, Tauri v2 blocks all media saving.
 7. **Byte-Identical Icon Synchronization**:
    - `src-tauri/icons/` must always match `icons/` byte-for-byte. `src-tauri/build.rs` watches these files so Windows `.res` resources recompile automatically upon icon updates.
 
@@ -59,8 +59,9 @@ The following core systems have been iteratively refined and battle-tested. AI a
 ## 4. Verification Mandate
 
 Before committing or recommending changes, all agents must run:
-- `cd src-tauri && cargo test --lib` (22/22 unit tests passing).
+- `cd src-tauri && cargo test --lib` (40/40 unit tests passing).
 - `node scripts/verify-xnow-helpers.js` (88/88 contract assertions passing).
+- `node scripts/verify-xnow-ui.js` (79/79 UI assertions passing).
 - `cargo fmt --all -- --check` & `cargo check`.
 
 *Authored and maintained solely by Benedictus Reynaldo Hartanto ([@benedictusrey](https://github.com/benedictusrey)).*

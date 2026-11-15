@@ -27,6 +27,9 @@ fn main() {
             "prepare_download_folder",
             "download_media",
             "save_media_bytes",
+            "get_settings",
+            "update_settings",
+            "open_saved_folder",
         ]),
     ))
     .expect("failed to run tauri-build");

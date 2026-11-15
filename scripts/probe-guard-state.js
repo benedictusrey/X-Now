@@ -16,7 +16,7 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   await new Promise(r => kill.on('exit', r));
   await sleep(800);
   const proc = spawn(EXE, [], {
-    env: { ...process.env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${PORT}` },
+    env: { ...process.env, XNOW_WEBVIEW_ARGS: `--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,CalculateNativeWinOcclusion --disable-direct-composition-video-overlays --remote-debugging-port=${PORT}` },
     stdio: 'ignore',
   });
   await sleep(4500);

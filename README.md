@@ -10,13 +10,13 @@
 </p>
 
 <p align="center">
-  <strong>🚀 X-NOW v2.1.0</strong><br/>
-  <em>Readable typography, a structured native tray, and consistent new branding.</em>
+  <strong>🚀 X-NOW v2.5.0</strong><br/>
+  <em>Settings panel, Quiet hours, Refresh beside the logo, and Google &amp; Apple sign-in that closes itself after login.</em>
 </p>
 
 <p align="center">
-  <strong>v2.1.0 highlights</strong><br/>
-  <em>15px composer text · 17px sidebar text · grouped native tray actions · branded icons · redesigned About card</em>
+  <strong>v2.5.0 highlights</strong><br/>
+  <em>Settings · Refresh · Quiet hours · saved-media history · universal installers for Windows, macOS and Linux</em>
 </p>
 
 <p align="center">
@@ -25,7 +25,7 @@
   <img alt="Linux" src="https://img.shields.io/badge/platform-Linux-FCC624?style=flat-square&logo=linux&logoColor=black">
   <img alt="Rust and Tauri 2" src="https://img.shields.io/badge/built%20with-Rust%20%2B%20Tauri%202-24C8DB?style=flat-square&logo=tauri&logoColor=white">
   <img alt="WebView2" src="https://img.shields.io/badge/rendering-WebView2%20%2F%20WebKit-0078D4?style=flat-square&logo=microsoftedge&logoColor=white">
-  <img alt="Version 2.1.0" src="https://img.shields.io/badge/version-2.1.0-1D9BF0?style=flat-square">
+  <img alt="Version 2.5.0" src="https://img.shields.io/badge/version-2.5.0-1D9BF0?style=flat-square">
   <a href="https://github.com/benedictusrey"><img src="https://img.shields.io/badge/author-%40benedictusrey-black?style=flat-square&logo=github"/></a>
 </p>
 
@@ -75,6 +75,10 @@ Why open a browser tab when you can command everything from your taskbar? X-Now 
 
 ---
 
+## v2.5.0 Highlights
+
+X-Now v2.5.0 adds a Settings panel (opened from the X-Now button beside X's logo, or from the tray), Refresh beside the logo, Quiet hours, and a saved-media history. Google sign-in now closes its window by itself and lands on X, and Apple's window opens and closes correctly. Video sound in the foreground on Windows is fixed, and so are the black flashes while scrolling. The full record is in [docs/releases/X-Now_v2.5.0.md](docs/releases/X-Now_v2.5.0.md).
+
 ## v2.1.0 Highlights
 
 X-Now v2.1.0 brings a major leap forward in rendering stability, compositor smoothness, typography, tray architecture, and visual identity while maintaining full feature parity with v2.0.0.
@@ -105,7 +109,7 @@ X-Now v2.1.0 brings a major leap forward in rendering stability, compositor smoo
 
 ## 📊 Comprehensive Comparison: v2.1.0 vs v2.0.0
 
-| Subsystem / Capability | X-Now v2.0.0 | X-Now v2.1.0 (Latest) | Real-World Impact |
+| Subsystem / Capability | X-Now v2.0.0 | X-Now v2.1.0 | Real-World Impact |
 |---|---|---|---|
 | **Video Mount Transition** | Black player gap (~3 frames) flashed on every video post while scrolling | **Video Mount Guard** hides unpainted player chrome until first frame renders | Eliminates the jarring black flash during timeline scrolling |
 | **Compositor Background** | Hardcoded dark background (`#0f1419`) | **Theme-Adaptive Background (`XNOWBG`)** syncs native background to X theme dynamically | No dark flash bands on light theme; seamless match in all modes |
@@ -293,7 +297,8 @@ The repository checks validate JavaScript syntax, Rust formatting, Rust dependen
 
 | Document | What you'll find |
 |---|---|
-| [RELEASE_NOTES.md](RELEASE_NOTES.md) | What's new in v2.1.0 — everything changed since v2.0.0, platform by platform |
+| [RELEASE_NOTES.md](RELEASE_NOTES.md) | What's new in v2.5.0, with the v2.1.0 notes below |
+| [docs/releases/X-Now_v2.5.0.md](docs/releases/X-Now_v2.5.0.md) | Full v2.5.0 record: sign-in, audio, settings, release workflow, verification |
 | [CHANGELOG.md](CHANGELOG.md) | Full version history, one entry per release |
 | [SECURITY.md](SECURITY.md) | Supported versions, security & privacy guarantees |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Welcoming contribution guide, architectural invariants, and Pull Request steps |

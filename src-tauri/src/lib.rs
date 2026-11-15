@@ -4,7 +4,10 @@
 
 #[cfg(windows)]
 mod audio;
+mod settings;
 mod tray;
+#[cfg(windows)]
+mod webview_sleep;
 
 use std::{
     fs,
@@ -19,12 +22,30 @@ use std::{
 };
 
 use tauri::{
-    webview::NewWindowResponse, window::Color, AppHandle, Manager, WebviewUrl, WebviewWindowBuilder,
+    webview::NewWindowResponse, window::Color, AppHandle, Manager, Url, WebviewUrl,
+    WebviewWindowBuilder,
 };
 use tauri_plugin_shell::ShellExt;
 
 const X_WINDOW_LABEL: &str = "x";
-const X_HELPER_SCRIPT: &str = include_str!("../../frontend/x-tools.js");
+/// Page scripts, injected in this order: media tools and overlays first, then
+/// the rail controls and the Settings panel that build on them. The brand icon
+/// placeholder becomes a data URI, so the page needs no asset protocol.
+fn helper_script() -> String {
+    let brand = base64::Engine::encode(
+        &base64::engine::general_purpose::STANDARD,
+        include_bytes!("../../icons/128x128.png"),
+    );
+    concat!(
+        include_str!("../../frontend/x-tools.js"),
+        include_str!("../../frontend/x-rail.js"),
+        include_str!("../../frontend/x-settings.js"),
+    )
+    .replace(
+        "__XNOW_BRAND_ICON__",
+        &format!("data:image/png;base64,{brand}"),
+    )
+}
 
 /// WebView2 browser arguments for the X window. The wry defaults
 /// (--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection) are kept
@@ -71,11 +92,6 @@ static WATCHDOG_WAKE: (Mutex<bool>, Condvar) = (Mutex::new(false), Condvar::new(
 /// reaches (some driver/desktop edge paths bypass both Win32 messages and the
 /// tao event loop).
 const HIDDEN_POLL: std::time::Duration = std::time::Duration::from_secs(5);
-
-/// Wall-clock budget for the cold-start audio-session unmute retries before
-/// concluding no session will ever appear (see watch_x_window).
-#[cfg(windows)]
-const STARTUP_UNMUTE_GIVE_UP: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// wry's built-in WebView2 browser arguments (see wry 0.55's
 /// `create_environment`): overriding `additional_browser_args` REPLACES them,
@@ -278,6 +294,10 @@ fn parse_css_color_to_native(value: &str) -> Option<Color> {
         return None;
     }
     if let Some(hex) = v.strip_prefix('#') {
+        // Slicing below counts bytes; a non-ASCII value would panic, and panic=abort kills the app.
+        if !hex.is_ascii() {
+            return None;
+        }
         return match hex.len() {
             3 => Some(Color(
                 u8::from_str_radix(&hex[0..1].repeat(2), 16).ok()?,
@@ -306,10 +326,7 @@ fn parse_css_color_to_native(value: &str) -> Option<Color> {
     }
     // Bare "r,g,b" component list (the XNOWBG: title-ping payload).
     if !v.is_empty() && v.chars().all(|c| c.is_ascii_digit() || c == ',') {
-        let parts: Vec<u8> = v
-            .split(',')
-            .filter_map(|s| s.parse::<u8>().ok())
-            .collect();
+        let parts: Vec<u8> = v.split(',').filter_map(|s| s.parse::<u8>().ok()).collect();
         if parts.len() == 3 {
             return Some(Color(parts[0], parts[1], parts[2], 255));
         }
@@ -338,6 +355,93 @@ fn apply_page_theme_background(window: &tauri::WebviewWindow, css_rgb: &str) {
 /// `postMessage` — they must open INSIDE the app, not in an external browser).
 static POPUP_COUNTER: AtomicU32 = AtomicU32::new(0);
 
+/// What X-Now does when a page asks to open a new window.
+#[derive(Debug, PartialEq, Eq)]
+enum NewWindow {
+    /// Google, Apple or Microsoft sign-in: a managed popup that shares X's
+    /// profile, so the token relay back to the opener still works.
+    SignIn,
+    /// X's own login or sign-up pages load in the main window. As a popup they
+    /// closed themselves on the x.com hop and the main window never reloaded.
+    MainWindow,
+    /// Any other site: the OS default browser.
+    External,
+    /// Plain X pages: WebView2 opens them as usual.
+    Allow,
+}
+
+/// Sign-in provider hosts, matched on whole host names only.
+const SIGN_IN_HOSTS: [&str; 5] = [
+    "accounts.google.com",
+    "appleid.apple.com",
+    "idmsa.apple.com",
+    "login.microsoftonline.com",
+    "login.live.com",
+];
+
+fn is_x_host(host: &str) -> bool {
+    host == "x.com"
+        || host.ends_with(".x.com")
+        || host == "twitter.com"
+        || host.ends_with(".twitter.com")
+}
+
+fn classify_new_window(url: &Url) -> NewWindow {
+    // window.open() with no address starts on about:blank; sign-in SDKs
+    // navigate that window to the provider afterwards.
+    if url.as_str() == "about:blank" {
+        return NewWindow::SignIn;
+    }
+    let host = url.host_str().unwrap_or("");
+    if is_x_host(host) {
+        let path = url.path();
+        let is_flow = path.starts_with("/i/flow/")
+            || path == "/login"
+            || path.starts_with("/login/")
+            || path.starts_with("/i/oauth");
+        return if is_flow {
+            NewWindow::MainWindow
+        } else {
+            NewWindow::Allow
+        };
+    }
+    let is_provider = SIGN_IN_HOSTS
+        .iter()
+        .any(|known| host == *known || host.ends_with(&format!(".{known}")));
+    if url.scheme() == "https" && is_provider {
+        NewWindow::SignIn
+    } else {
+        NewWindow::External
+    }
+}
+
+/// Sign-in state as the page reports it. `Unknown` until the first report, so
+/// a popup opened while the page is still loading is never taken for a sign-in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Session {
+    Unknown,
+    Out,
+    In,
+}
+
+static SESSION: Mutex<Session> = Mutex::new(Session::Unknown);
+
+/// Next state for a page report, and whether it completes a sign-in (Out -> In).
+/// Only that completion closes the sign-in popups: a reload or a popup opened
+/// while already signed in must leave them alone.
+fn on_session_report(prev: Session, signed_in: bool) -> (Session, bool) {
+    let next = if signed_in { Session::In } else { Session::Out };
+    (next, prev == Session::Out && next == Session::In)
+}
+
+/// Records a page report in `SESSION`; true when it completes a sign-in.
+fn report_session(signed_in: bool) -> bool {
+    let mut session = SESSION.lock().unwrap();
+    let (next, completed) = on_session_report(*session, signed_in);
+    *session = next;
+    completed
+}
+
 pub(crate) fn x_data_directory(app: &AppHandle) -> Result<PathBuf, String> {
     // Keep the existing Personal WebView2 data directory so removing the
     // profile manager does not sign the current X session out.
@@ -349,6 +453,28 @@ pub(crate) fn x_data_directory(app: &AppHandle) -> Result<PathBuf, String> {
 
 fn is_safe_http_url(url: &str) -> bool {
     (url.starts_with("https://") || url.starts_with("http://")) && !url.contains(['\r', '\n'])
+}
+
+/// Media is fetched only from X's own hosts, so the page cannot make the app
+/// fetch arbitrary addresses (including local network ones).
+fn is_x_media_url(url: &str) -> bool {
+    let Some(rest) = url.strip_prefix("https://") else {
+        return false;
+    };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    if authority.contains('@') {
+        return false;
+    }
+    let host = authority
+        .split(':')
+        .next()
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    host == "x.com"
+        || host == "twitter.com"
+        || host.ends_with(".twimg.com")
+        || host.ends_with(".x.com")
+        || host.ends_with(".twitter.com")
 }
 
 /// JS that pauses everything via the page helpers and returns a diagnostics report.
@@ -415,36 +541,43 @@ const REPORT_JS: &str = r#"(function(){
 /// page-side pause (in `__onWindowHidden`), then a hard mute of this app's
 /// Windows audio sessions as a guarantee.
 fn pause_media_for_hidden(w: &tauri::WebviewWindow) {
-    let _ = w.eval_with_callback(PAUSE_JS, |report| {
-        eprintln!("[X-Now] Watchdog pause report: {}", report);
-    });
-    // Re-check a moment later: if the player engine re-played it, the report
-    // will show it (and the OS-level session mute still guarantees silence).
-    let w2 = w.clone();
-    std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_millis(2500));
-        let _ = w2.eval_with_callback(REPORT_JS, |report| {
-            eprintln!("[X-Now] Watchdog recheck: {}", report);
+    let (pause, sleep) = settings::read(|s| (s.pause_on_minimize, s.sleep_on_minimize));
+    if pause {
+        let _ = w.eval_with_callback(PAUSE_JS, |report| {
+            eprintln!("[X-Now] Watchdog pause report: {}", report);
         });
-    });
-    #[cfg(windows)]
-    if audio::set_app_audio_mute(true) {
-        eprintln!("[X-Now] Watchdog: audio sessions muted");
-    } else {
-        eprintln!("[X-Now] Watchdog: no audio session found to mute");
+        // Re-check a moment later: if the player engine re-played it, the report
+        // will show it (and the OS-level session mute still guarantees silence).
+        let w2 = w.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(2500));
+            let _ = w2.eval_with_callback(REPORT_JS, |report| {
+                eprintln!("[X-Now] Watchdog recheck: {}", report);
+            });
+        });
     }
+    #[cfg(windows)]
+    if sleep {
+        set_page_sleep(w, true);
+    }
+}
+
+/// Put the page to sleep or wake it. `with_webview` runs the COM calls on the
+/// UI thread that owns the WebView2 controller.
+#[cfg(windows)]
+fn set_page_sleep(w: &tauri::WebviewWindow, sleeping: bool) {
+    let _ = w.with_webview(move |webview| webview_sleep::set_sleeping(&webview, sleeping));
 }
 
 /// Resume playback when the window becomes visible again.
 fn resume_media_for_visible(w: &tauri::WebviewWindow) {
+    // Wake the page first, so the resume script runs in a live renderer.
+    #[cfg(windows)]
+    set_page_sleep(w, false);
     let _ = w.eval("if (window.__resumeIfNeeded) window.__resumeIfNeeded();");
     let _ = w.eval_with_callback(REPORT_JS, |report| {
         eprintln!("[X-Now] Watchdog visible report: {}", report);
     });
-    #[cfg(windows)]
-    if audio::set_app_audio_mute(false) {
-        eprintln!("[X-Now] Watchdog: audio sessions unmuted");
-    }
 }
 
 /// Playback watchdog for the X window.
@@ -463,10 +596,10 @@ fn watch_x_window(w: tauri::WebviewWindow) {
     // destroyed), treat the window as HIDDEN so playback gets paused.
     let state_hidden = || w.is_minimized().unwrap_or(true) || !w.is_visible().unwrap_or(false);
     let mut last_hidden = state_hidden();
+    // Last audio reconcile: (hidden state, when). Re-run on every hidden change
+    // and at least once per poll, so sessions WebView2 creates later are caught.
     #[cfg(windows)]
-    let mut startup_unmuted = false;
-    #[cfg(windows)]
-    let startup_started = std::time::Instant::now();
+    let mut audio_synced: Option<(bool, std::time::Instant)> = None;
     let mut startup_ticks = 0u32;
     let mut startup_reported = false;
     loop {
@@ -474,7 +607,10 @@ fn watch_x_window(w: tauri::WebviewWindow) {
         // wait immediately; with no event it times out after 5 s and the
         // state is re-checked anyway as a safety net for any edge path that
         // bypasses the event hooks.
-        let pending_guard = WATCHDOG_WAKE.0.lock().unwrap_or_else(|error| error.into_inner());
+        let pending_guard = WATCHDOG_WAKE
+            .0
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         let (mut pending_guard, _timeout) = WATCHDOG_WAKE
             .1
             .wait_timeout_while(pending_guard, HIDDEN_POLL, |flag| !*flag)
@@ -483,31 +619,24 @@ fn watch_x_window(w: tauri::WebviewWindow) {
         drop(pending_guard);
 
         let hidden = state_hidden();
-        // Windows PERSISTS a session's mute state across app restarts
-        // (per-app Volume Mixer store). If the previous session exited while
-        // muted (pause-on-minimize), this cold start would begin OS-muted —
-        // with no hidden/visible transition ever firing, nothing would unmute
-        // it and the app would be silent while the page plays fine. Retry the
-        // unmute until a session actually exists (the WebView2 session appears
-        // seconds after launch), giving up after 60 s WALL CLOCK — the
-        // event-driven wake makes tick counts unpredictable, so a time-based
-        // bound is the robust one. (Windows-only: audio.rs / Core Audio.)
+        // Audio sessions (audio.rs): muted while hidden, and only the mutes we
+        // set are released while visible. Covers persisted mutes from a crash
+        // and sessions created after a transition.
         #[cfg(windows)]
         {
-            if !startup_unmuted {
-                if !hidden {
-                    if audio::set_app_audio_mute(false) {
-                        startup_unmuted = true;
-                        eprintln!(
-                            "[X-Now] Watchdog: startup unmute (cleared persisted session mute)"
-                        );
-                        // Immediate evidence: session state right after clearing.
-                        audio::report_audio_state();
-                    } else if startup_started.elapsed() >= STARTUP_UNMUTE_GIVE_UP {
-                        startup_unmuted = true; // no session appeared — nothing to clear
-                        eprintln!("[X-Now] Watchdog: startup unmute gave up (no session appeared)");
-                    }
-                }
+            let due = match audio_synced {
+                Some((was_hidden, at)) => was_hidden != hidden || at.elapsed() >= HIDDEN_POLL,
+                None => true,
+            };
+            if due {
+                let mute = hidden && settings::read(|s| s.mute_on_minimize);
+                let mode = if mute {
+                    audio::Mode::Hidden
+                } else {
+                    audio::Mode::Visible
+                };
+                audio::sync(mode);
+                audio_synced = Some((hidden, std::time::Instant::now()));
             }
         }
         if hidden && !last_hidden {
@@ -611,7 +740,8 @@ pub fn launch_x_internal(app: &AppHandle, start_minimized: bool) -> Result<(), S
     .min_inner_size(900.0, 600.0)
     .resizable(true)
     .center()
-    .visible(!start_minimized)
+    // Built hidden and shown once below: a visible-then-shown window painted twice at launch.
+    .visible(false)
     // X's dark surface color: with a white default background, every frame
     // not yet painted by the webview (launch, occlusion-throttled
     // compositing, heavy video churn) blanches the whole window. wry maps
@@ -632,25 +762,16 @@ pub fn launch_x_internal(app: &AppHandle, start_minimized: bool) -> Result<(), S
     // Occlusion-tracker + video-overlay hardening, per-launch overridable
     // (see DEFAULT_WEBVIEW_BROWSER_ARGS / resolve_launch_config docs).
     .additional_browser_args(&launch_config.webview_args)
-    .initialization_script(X_HELPER_SCRIPT)
+    .initialization_script(&helper_script())
     // ── OAuth popup manager & external-link router ─────────────────────────
     // X's Google/Apple sign-in opens `target=_blank` popups (accounts.google.com
     // / appleid.apple.com) that relay the token back to x.com via postMessage.
     // They MUST open as managed in-app windows — an external browser breaks the
     // relay. Everything else that opens a new window goes to the OS browser.
     .on_new_window(move |url, features| {
-        let host = url.host_str().unwrap_or("");
-        let path = url.path();
-        let is_x = host == "x.com" || host.ends_with(".x.com") || host == "twitter.com" || host.ends_with(".twitter.com");
-        let is_auth_provider = host.contains("google")
-            || host.contains("apple")
-            || host.contains("microsoft")
-            || path.contains("login")
-            || path.contains("auth")
-            || path.contains("sso")
-            || path.contains("passport");
+        let kind = classify_new_window(&url);
 
-        if is_auth_provider || (is_x && (path.contains("login") || path.contains("auth"))) {
+        if kind == NewWindow::SignIn {
             let label = format!("popup-{}", POPUP_COUNTER.fetch_add(1, Ordering::Relaxed));
             eprintln!("[X-Now] Intercepted OAuth login window: {}", url);
 
@@ -662,6 +783,7 @@ pub fn launch_x_internal(app: &AppHandle, start_minimized: bool) -> Result<(), S
             #[cfg(windows)]
             let env = features.opener().environment.clone();
 
+            let blank = url.as_str() == "about:blank";
             let app_close = popup_app.clone();
             let label_close = label.clone();
             let close_once = Arc::new(AtomicBool::new(false));
@@ -693,8 +815,7 @@ pub fn launch_x_internal(app: &AppHandle, start_minimized: bool) -> Result<(), S
                 })();
             "#)
             .on_navigation(move |nav_url| {
-                let host = nav_url.host_str().unwrap_or("");
-                let is_x = host == "x.com" || host.ends_with(".x.com") || host == "twitter.com" || host.ends_with(".twitter.com");
+                let is_x = is_x_host(nav_url.host_str().unwrap_or(""));
                 if is_x && !flag_nav.load(Ordering::Relaxed) {
                     flag_nav.store(true, Ordering::Relaxed);
                     let app = app_close.clone();
@@ -720,21 +841,46 @@ pub fn launch_x_internal(app: &AppHandle, start_minimized: bool) -> Result<(), S
             }
 
             match builder.build() {
-                Ok(popup) => NewWindowResponse::Create { window: popup },
-                Err(_) => NewWindowResponse::Allow,
+                Ok(popup) => {
+                    if blank {
+                        // A window opened blank that nothing navigates would stay as an empty stray window.
+                        let stray = popup.clone();
+                        std::thread::spawn(move || {
+                            std::thread::sleep(std::time::Duration::from_secs(15));
+                            if stray.url().map_or(true, |u| u.as_str() == "about:blank") {
+                                let _ = stray.close();
+                            }
+                        });
+                    }
+                    NewWindowResponse::Create { window: popup }
+                }
+                Err(error) => {
+                    eprintln!("[X-Now] Could not open the sign-in window: {error}");
+                    NewWindowResponse::Allow
+                }
             }
-        } else if !is_x {
+        } else if kind == NewWindow::MainWindow {
+            eprintln!("[X-Now] Sign-in page opened in the main window ({})", url);
+            let app = popup_app.clone();
+            let target = url.clone();
+            std::thread::spawn(move || {
+                if let Some(main) = app.get_webview_window(X_WINDOW_LABEL) {
+                    let _ = main.navigate(target);
+                }
+            });
+            NewWindowResponse::Deny
+        } else if kind == NewWindow::External {
             eprintln!("[X-Now] External hyperlink in new window ({}), launching OS default browser...", url);
-            let _ = open_external_url(browser_app.clone(), url.to_string());
+            if let Err(error) = open_external_url(browser_app.clone(), url.to_string()) {
+                eprintln!("[X-Now] Could not open the link in the OS browser: {error}");
+            }
             NewWindowResponse::Deny
         } else {
             NewWindowResponse::Allow
         }
     })
     .on_navigation(move |url| {
-        let host = url.host_str().unwrap_or("");
-        let is_x = host == "x.com" || host.ends_with(".x.com") || host == "twitter.com" || host.ends_with(".twitter.com");
-        if is_x {
+        if is_x_host(url.host_str().unwrap_or("")) {
             return true;
         }
         // Same-window navigation to anything outside X (e.g. a redirect to an
@@ -744,15 +890,13 @@ pub fn launch_x_internal(app: &AppHandle, start_minimized: bool) -> Result<(), S
         false
     })
     // ── Titlebar Username & OAuth Popup Sweeper ────────────────────────────
-    // The tools script sets `document.title` to `XNOW:<handle>` once the
-    // signed-in profile link appears — i.e. AFTER the OAuth token relay
-    // (postMessage) has already completed. Two jobs happen here, mirroring
-    // TikTok-Now's handler:
+    // The tools script sets `document.title` to `XNOW:<handle>` when the
+    // signed-in profile link appears, and to `XNOWOUT:` when it has been gone
+    // for a while. Two jobs happen here:
     //  1. Surface the handle as "X-Now (@handle)" in the native titlebar.
-    //  2. Sweep: close ANY remaining `popup-*` OAuth windows. X's Google
-    //     sign-in (GIS) can leave the popup on accounts.google.com forever
-    //     (it never navigates back to x.com), so the popup's own self-close
-    //     never fires — this title signal is the guaranteed close moment.
+    //  2. Close the sign-in popups once a sign-in completes (signed out ->
+    //     signed in). X's Google sign-in (GIS) can leave its popup on
+    //     accounts.google.com forever, so the popup never closes itself.
     .on_document_title_changed(move |window, page_title| {
         let app = window.app_handle().clone();
         // Theme channel: the page tools ping `XNOWBG:r,g,b` when the theme's
@@ -781,6 +925,13 @@ pub fn launch_x_internal(app: &AppHandle, start_minimized: bool) -> Result<(), S
             eprintln!("[X-Now] Media-save diagnostics: {}", summary);
             return;
         }
+        if page_title == "XNOWOUT:" {
+            report_session(false);
+            eprintln!("[X-Now] Page reports signed out");
+            *cache_for_title.lock().unwrap() = None;
+            let _ = window.set_title("X-Now");
+            return;
+        }
         if let Some(user) = page_title.strip_prefix("XNOW:") {
             let user = user.trim().to_string();
             let is_pure_numeric = !user.is_empty() && user.chars().all(|c| c.is_ascii_digit());
@@ -789,23 +940,26 @@ pub fn launch_x_internal(app: &AppHandle, start_minimized: bool) -> Result<(), S
                 *cache_for_title.lock().unwrap() = Some(user.clone());
             }
 
-            // Immediately close ALL open OAuth popup windows upon login!
-            let popup_labels: Vec<String> = app
-                .webview_windows()
-                .keys()
-                .filter(|label| label.starts_with("popup-"))
-                .cloned()
-                .collect();
-            for label in popup_labels {
-                eprintln!("[X-Now] Login detected — closing popup window '{}'", label);
-                if let Some(popup) = app.get_webview_window(&label) {
-                    let _ = popup.close();
+            // Only a completed sign-in closes the sign-in popups. A reload, or a
+            // popup opened while already signed in, must leave them open.
+            if report_session(!user.is_empty()) {
+                let popup_labels: Vec<String> = app
+                    .webview_windows()
+                    .keys()
+                    .filter(|label| label.starts_with("popup-"))
+                    .cloned()
+                    .collect();
+                for label in popup_labels {
+                    eprintln!("[X-Now] Login detected — closing popup window '{}'", label);
+                    if let Some(popup) = app.get_webview_window(&label) {
+                        let _ = popup.close();
+                    }
                 }
             }
 
-            let _ = window.show();
-            let _ = window.set_focus();
-
+            // Deliberately no show()/set_focus(): this handler also runs after
+            // reloads, which must not un-hide a window the user sent to the tray.
+            // The OAuth success path shows the window itself.
             let cached = cache_for_title.lock().unwrap().clone();
             let new_title = if let Some(u) = cached {
                 format!("X-Now (@{})", u)
@@ -827,8 +981,15 @@ pub fn launch_x_internal(app: &AppHandle, start_minimized: bool) -> Result<(), S
     .build()
     .map_err(|error| error.to_string())?;
 
+    let initial = settings::get();
+    if initial.zoom_percent != 100 {
+        let _ = window.set_zoom(initial.zoom_percent as f64 / 100.0);
+    }
+    if initial.always_on_top {
+        let _ = window.set_always_on_top(true);
+    }
+
     if !start_minimized {
-        window.unminimize().map_err(|error| error.to_string())?;
         window.show().map_err(|error| error.to_string())?;
         window.set_focus().map_err(|error| error.to_string())?;
     }
@@ -866,6 +1027,86 @@ fn download_base_dir(app: &AppHandle) -> Result<PathBuf, String> {
         .map_err(|error| error.to_string())
 }
 
+/// Saved settings plus the autostart state, which the autostart plugin owns and
+/// settings.json therefore does not store.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SettingsView {
+    #[serde(flatten)]
+    settings: settings::Settings,
+    launch_at_login: bool,
+}
+
+fn settings_view(app: &AppHandle) -> SettingsView {
+    use tauri_plugin_autostart::ManagerExt;
+    SettingsView {
+        settings: settings::get(),
+        launch_at_login: app.autolaunch().is_enabled().unwrap_or(false),
+    }
+}
+
+/// Applies what a settings change touches outside the page: window flags, zoom,
+/// the tray checkmarks, and the open page so its panel stays in step.
+pub(crate) fn apply_settings_change(
+    app: &AppHandle,
+    before: &settings::Settings,
+    after: &settings::Settings,
+) {
+    if let Some(window) = app.get_webview_window(X_WINDOW_LABEL) {
+        if before.always_on_top != after.always_on_top {
+            let _ = window.set_always_on_top(after.always_on_top);
+        }
+        if before.zoom_percent != after.zoom_percent {
+            let _ = window.set_zoom(after.zoom_percent as f64 / 100.0);
+        }
+        let _ = window.eval("if (window.__xnowSettingsChanged) window.__xnowSettingsChanged();");
+    }
+    tray::sync_checks(app);
+}
+
+/// Native-side change (the tray): mutate, then apply.
+pub(crate) fn change_settings(app: &AppHandle, change: impl FnOnce(&mut settings::Settings)) {
+    let before = settings::get();
+    let after = settings::mutate(change);
+    apply_settings_change(app, &before, &after);
+}
+
+#[tauri::command]
+fn get_settings(app: AppHandle) -> SettingsView {
+    settings_view(&app)
+}
+
+#[tauri::command]
+fn update_settings(
+    app: AppHandle,
+    patch: serde_json::Map<String, serde_json::Value>,
+) -> Result<SettingsView, String> {
+    // Startup registration is system configuration. The page is a remote origin,
+    // so only the native tray may change it.
+    if patch.contains_key("launchAtLogin") {
+        return Err("Change launch at login from the X-Now tray menu.".to_string());
+    }
+    let before = settings::get();
+    let after = settings::update(&patch)?;
+    apply_settings_change(&app, &before, &after);
+    Ok(settings_view(&app))
+}
+
+/// Opens the folder of a file X-Now saved. Only paths in the recorded history
+/// are accepted, so the page cannot open arbitrary folders.
+#[tauri::command]
+fn open_saved_folder(app: AppHandle, path: String) -> Result<(), String> {
+    if !settings::is_recorded_path(&path) {
+        return Err("That file is not in X-Now's saved media list.".to_string());
+    }
+    let folder = std::path::Path::new(&path)
+        .parent()
+        .ok_or("The saved file has no folder.")?;
+    app.shell()
+        .open(folder.to_string_lossy().into_owned(), None)
+        .map_err(|error| error.to_string())
+}
+
 #[tauri::command]
 fn prepare_download_folder(app: AppHandle) -> Result<String, String> {
     let download_dir = download_base_dir(&app)?.join("X-Now");
@@ -873,12 +1114,22 @@ fn prepare_download_folder(app: AppHandle) -> Result<String, String> {
     Ok(download_dir.to_string_lossy().into_owned())
 }
 
-fn media_target_path(app: &AppHandle, media_type: &str) -> Result<PathBuf, String> {
-    let extension = if media_type.eq_ignore_ascii_case("video") {
-        "mp4"
+/// Image extension from the file's magic bytes. X serves jpg, png, webp and gif
+/// variants, so the saved name must follow the bytes, not the URL.
+fn sniff_image_extension(head: &[u8]) -> &'static str {
+    if head.starts_with(&[0x89, b'P', b'N', b'G']) {
+        "png"
+    } else if head.starts_with(b"GIF8") {
+        "gif"
+    } else if head.len() >= 12 && &head[0..4] == b"RIFF" && &head[8..12] == b"WEBP" {
+        "webp"
     } else {
         "jpg"
-    };
+    }
+}
+
+fn media_target_path(app: &AppHandle, extension: &str) -> Result<PathBuf, String> {
+    let is_video = extension == "mp4";
     let download_dir = download_base_dir(app)?.join("X-Now");
     fs::create_dir_all(&download_dir).map_err(|error| error.to_string())?;
     let timestamp = SystemTime::now()
@@ -887,7 +1138,7 @@ fn media_target_path(app: &AppHandle, media_type: &str) -> Result<PathBuf, Strin
         .as_millis();
     Ok(download_dir.join(format!(
         "X-Now-{}-{timestamp}.{extension}",
-        if extension == "mp4" { "Video" } else { "Image" }
+        if is_video { "Video" } else { "Image" }
     )))
 }
 
@@ -915,16 +1166,27 @@ async fn download_media(
     if !is_safe_http_url(&url) {
         return Err("X did not provide a downloadable HTTP(S) media URL.".to_string());
     }
+    if !is_x_media_url(&url) {
+        return Err("This media is not hosted by X, so X-Now will not download it.".to_string());
+    }
 
-    let target_path = media_target_path(&app, &media_type)?;
+    let is_video = media_type.eq_ignore_ascii_case("video");
+    let target_path = media_target_path(&app, if is_video { "mp4" } else { "jpg" })?;
     let referer = referer
         .filter(|value| is_safe_http_url(value))
         .unwrap_or_else(|| "https://x.com/".to_string());
 
-    tokio::task::spawn_blocking(move || -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<String, String> {
         // Windows ships `curl.exe`; macOS/Linux use the system `curl`.
-        let curl = if cfg!(windows) { "curl.exe" } else { "curl" };
-        let mut command = Command::new(curl);
+        // Windows ships curl in System32. The full path avoids running a curl.exe
+        // from the app or current folder, which a bare name would find first.
+        let curl = if cfg!(windows) {
+            let root = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_string());
+            format!("{root}\\System32\\curl.exe")
+        } else {
+            "curl".to_string()
+        };
+        let mut command = Command::new(&curl);
         command
             .args([
                 "--fail",
@@ -985,13 +1247,31 @@ async fn download_media(
             }
         }
 
+        // The URL's format is not reliable: rename images to match their bytes.
+        let final_path = if media_type.eq_ignore_ascii_case("video") {
+            target_path
+        } else {
+            let mut head = [0_u8; 12];
+            let read = fs::File::open(&target_path)
+                .and_then(|mut file| file.read(&mut head))
+                .unwrap_or(0);
+            let corrected = target_path.with_extension(sniff_image_extension(&head[..read]));
+            if corrected != target_path && fs::rename(&target_path, &corrected).is_ok() {
+                corrected
+            } else {
+                target_path
+            }
+        };
+
         eprintln!(
             "[X-Now] download_media OK: {} bytes -> {} <- {}",
             metadata.len(),
-            target_path.display(),
+            final_path.display(),
             url
         );
-        Ok(target_path.to_string_lossy().into_owned())
+        let saved = final_path.to_string_lossy().into_owned();
+        settings::record_save(if is_video { "video" } else { "image" }, &saved);
+        Ok(saved)
     })
     .await
     .map_err(|error| error.to_string())?
@@ -1007,8 +1287,13 @@ async fn save_media_bytes(
         return Err("X returned an empty media response.".to_string());
     }
 
-    let target_path = media_target_path(&app, &media_type)?;
-    tokio::task::spawn_blocking(move || -> Result<String, String> {
+    let extension = if media_type.eq_ignore_ascii_case("video") {
+        "mp4"
+    } else {
+        sniff_image_extension(&data)
+    };
+    let target_path = media_target_path(&app, extension)?;
+    tauri::async_runtime::spawn_blocking(move || -> Result<String, String> {
         if media_type.eq_ignore_ascii_case("video") && data.len() < 8 {
             return Err(
                 "The downloaded video was only a media fragment, not a complete MP4.".to_string(),
@@ -1030,17 +1315,31 @@ async fn save_media_bytes(
             metadata.len(),
             target_path.display()
         );
-        Ok(target_path.to_string_lossy().into_owned())
+        let saved = target_path.to_string_lossy().into_owned();
+        let kind = if media_type.eq_ignore_ascii_case("video") {
+            "video"
+        } else {
+            "image"
+        };
+        settings::record_save(kind, &saved);
+        Ok(saved)
     })
     .await
     .map_err(|error| error.to_string())?
 }
 
-
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // A second launch brings the running window forward instead of starting a
+        // second process, which would share the profile and fight over settings.json.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window(X_WINDOW_LABEL) {
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_shell::init())
         // Launch-on-startup support; the app reads the `--minimized` argument
         // itself and starts hidden to the tray (autostart never pops a window).
@@ -1052,7 +1351,10 @@ pub fn run() {
             open_external_url,
             prepare_download_folder,
             download_media,
-            save_media_bytes
+            save_media_bytes,
+            get_settings,
+            update_settings,
+            open_saved_folder
         ])
         .setup(|app| {
             if let Err(error) = tray::setup_tray(app.handle()) {
@@ -1060,6 +1362,11 @@ pub fn run() {
             }
 
             // Launch hidden to tray when started by the OS autostart feature.
+            if let Ok(data_dir) = app.path().app_data_dir() {
+                settings::init(&data_dir);
+                #[cfg(windows)]
+                audio::init(&data_dir);
+            }
             let start_minimized = std::env::args().any(|arg| arg == "--minimized");
 
             if let Err(error) = launch_x_internal(app.handle(), start_minimized) {
@@ -1070,7 +1377,9 @@ pub fn run() {
         })
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::CloseRequested { api, .. } => {
-                if window.label() == X_WINDOW_LABEL {
+                // With "Hide to tray on close" off, the close goes through and
+                // the app quits with its last window.
+                if window.label() == X_WINDOW_LABEL && settings::read(|s| s.close_to_tray) {
                     // Minimal, deterministic close-to-tray: prevent the close
                     // FIRST, pause via a plain eval (no callbacks/threads/COM —
                     // those were observed to race with the OS close processing
@@ -1112,16 +1421,105 @@ pub fn run() {
             }
             _ => {}
         })
-        .run(tauri::generate_context!())
-        .expect("error while running X-Now");
+        .build(tauri::generate_context!())
+        .expect("error while building X-Now")
+        .run(|_app, event| {
+            if let tauri::RunEvent::Exit = event {
+                // Release any audio mutes X-Now holds before the process ends.
+                #[cfg(windows)]
+                audio::sync(audio::Mode::Release);
+            }
+        });
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn url(text: &str) -> Url {
+        Url::parse(text).unwrap()
+    }
+
+    #[test]
+    fn sign_in_providers_open_as_managed_popups() {
+        for text in [
+            "about:blank",
+            "https://accounts.google.com/o/oauth2/v2/auth?client_id=1",
+            "https://appleid.apple.com/auth/authorize?response_type=code",
+            "https://idmsa.apple.com/IDMSWebAuth/signin",
+            "https://login.microsoftonline.com/common/oauth2/authorize",
+        ] {
+            assert_eq!(classify_new_window(&url(text)), NewWindow::SignIn, "{text}");
+        }
+    }
+
+    #[test]
+    fn lookalike_and_plain_hosts_go_to_the_os_browser() {
+        for text in [
+            "https://pineapple.com/",
+            "https://accounts.google.com.example.net/",
+            "https://evilaccounts.google.com/",
+            "http://accounts.google.com/",
+            "https://example.com/author/bob",
+            "https://example.com/login",
+        ] {
+            assert_eq!(
+                classify_new_window(&url(text)),
+                NewWindow::External,
+                "{text}"
+            );
+        }
+    }
+
+    #[test]
+    fn x_login_pages_load_in_the_main_window_and_other_x_pages_are_allowed() {
+        assert_eq!(
+            classify_new_window(&url("https://x.com/i/flow/login")),
+            NewWindow::MainWindow
+        );
+        assert_eq!(
+            classify_new_window(&url("https://twitter.com/login")),
+            NewWindow::MainWindow
+        );
+        assert_eq!(
+            classify_new_window(&url("https://x.com/intent/post")),
+            NewWindow::Allow
+        );
+        assert_eq!(
+            classify_new_window(&url("https://x.com/home")),
+            NewWindow::Allow
+        );
+    }
+
+    #[test]
+    fn only_a_completed_sign_in_closes_popups() {
+        assert_eq!(
+            on_session_report(Session::Unknown, true),
+            (Session::In, false)
+        );
+        assert_eq!(on_session_report(Session::In, true), (Session::In, false));
+        assert_eq!(on_session_report(Session::Out, true), (Session::In, true));
+        assert_eq!(on_session_report(Session::In, false), (Session::Out, false));
+    }
+
     fn args<'a>(list: &'a [&'a str]) -> Vec<&'a str> {
         list.to_vec()
+    }
+
+    // ── sniff_image_extension ────────────────────────────────────────
+
+    #[test]
+    fn sniff_image_extension_follows_magic_bytes() {
+        assert_eq!(
+            sniff_image_extension(&[0x89, b'P', b'N', b'G', 0, 0]),
+            "png"
+        );
+        assert_eq!(sniff_image_extension(b"RIFF\0\0\0\0WEBPVP8 "), "webp");
+        assert_eq!(sniff_image_extension(b"GIF89a"), "gif");
+        assert_eq!(sniff_image_extension(&[0xFF, 0xD8, 0xFF, 0xE0]), "jpg");
+        // Short or unreadable heads fall back to the old default.
+        assert_eq!(sniff_image_extension(b"RIFF"), "jpg");
+        assert_eq!(sniff_image_extension(&[]), "jpg");
     }
 
     // ── compose_webview_browser_args ─────────────────────────────────
@@ -1185,8 +1583,10 @@ mod tests {
 
     #[test]
     fn remove_feature_removes_empty_list_token() {
-        let result =
-            remove_disabled_feature("--disable-features=CalculateNativeWinOcclusion", "CalculateNativeWinOcclusion");
+        let result = remove_disabled_feature(
+            "--disable-features=CalculateNativeWinOcclusion",
+            "CalculateNativeWinOcclusion",
+        );
         assert_eq!(result, "");
     }
 
@@ -1203,7 +1603,10 @@ mod tests {
 
     #[test]
     fn remove_switch_tolerates_absent_switch() {
-        let result = remove_browser_switch("--disable-features=A", "--disable-direct-composition-video-overlays");
+        let result = remove_browser_switch(
+            "--disable-features=A",
+            "--disable-direct-composition-video-overlays",
+        );
         assert_eq!(result, "--disable-features=A");
     }
 
@@ -1250,10 +1653,7 @@ mod tests {
 
     #[test]
     fn webview_args_override_wins_and_keeps_wry_defaults() {
-        let config = resolve_launch_config(args(&[
-            "--webview-args",
-            "--disable-gpu-compositing",
-        ]));
+        let config = resolve_launch_config(args(&["--webview-args", "--disable-gpu-compositing"]));
         assert!(config.webview_args.starts_with(WRY_DEFAULT_BROWSER_ARGS));
         assert!(config.webview_args.contains("--disable-gpu-compositing"));
         // A full override does NOT silently re-add the occlusion fix.
@@ -1299,14 +1699,26 @@ mod tests {
 
     #[test]
     fn css_rgb_parses() {
-        assert_eq!(parse_css_color_to_native("rgb(255, 255, 255)"), Some(Color(255, 255, 255, 255)));
-        assert_eq!(parse_css_color_to_native("rgb(21, 32, 43)"), Some(Color(21, 32, 43, 255)));
+        assert_eq!(
+            parse_css_color_to_native("rgb(255, 255, 255)"),
+            Some(Color(255, 255, 255, 255))
+        );
+        assert_eq!(
+            parse_css_color_to_native("rgb(21, 32, 43)"),
+            Some(Color(21, 32, 43, 255))
+        );
     }
 
     #[test]
     fn css_hex_parses() {
-        assert_eq!(parse_css_color_to_native("#0f1419"), Some(Color(15, 20, 25, 255)));
-        assert_eq!(parse_css_color_to_native("#fff"), Some(Color(255, 255, 255, 255)));
+        assert_eq!(
+            parse_css_color_to_native("#0f1419"),
+            Some(Color(15, 20, 25, 255))
+        );
+        assert_eq!(
+            parse_css_color_to_native("#fff"),
+            Some(Color(255, 255, 255, 255))
+        );
     }
 
     #[test]
@@ -1319,8 +1731,14 @@ mod tests {
     #[test]
     fn bare_rgb_component_list_parses() {
         // The exact XNOWBG: title-ping payload form.
-        assert_eq!(parse_css_color_to_native("255,255,255"), Some(Color(255, 255, 255, 255)));
-        assert_eq!(parse_css_color_to_native("15,20,25"), Some(Color(15, 20, 25, 255)));
+        assert_eq!(
+            parse_css_color_to_native("255,255,255"),
+            Some(Color(255, 255, 255, 255))
+        );
+        assert_eq!(
+            parse_css_color_to_native("15,20,25"),
+            Some(Color(15, 20, 25, 255))
+        );
         assert_eq!(parse_css_color_to_native("1,2,3,4"), None);
     }
 }

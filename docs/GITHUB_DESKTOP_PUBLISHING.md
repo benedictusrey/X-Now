@@ -1,5 +1,7 @@
 # Publishing X-Now v2.1.0 — Complete GitHub Desktop Guide
 
+> **Historical guide (v2.1.0).** The current release process is in [`RELEASE_PIPELINE.md`](RELEASE_PIPELINE.md). Section 3 describes the tag-based flow used for v2.1.0. Releases are now started manually from GitHub Actions, and a tag push no longer starts a build.
+
 X-Now is authored and maintained solely by [@benedictusrey](https://github.com/benedictusrey).
 
 This is the definitive, step-by-step guide for publishing the complete, verified release of **X-Now v2.1.0** to [`https://github.com/benedictusrey/X-Now`](https://github.com/benedictusrey/X-Now) using **GitHub Desktop**.
@@ -18,7 +20,7 @@ Use these exact strings when updating your GitHub repository settings and commit
 | **Topics / Tags** | `tauri`, `tauri-v2`, `rust`, `x`, `twitter`, `desktop-app`, `webview2`, `webkit`, `cross-platform`, `windows`, `macos`, `linux`, `performance` |
 | **Release Tag** | `v2.1.0` |
 | **Release Title** | `X-Now v2.1.0 — Readable Typography, Structured Native Tray, & Rendering Stability` |
-| **Local Folder** | `C:\Users\Benedictus\Desktop\X-Now` |
+| **Local Folder** | `<path-to>\X-Now` |
 | **Default Branch** | `main` |
 
 ---
@@ -51,7 +53,7 @@ Before pushing your commit, configure your repository's public profile on GitHub
 1. Launch **GitHub Desktop** (installed on your system).
 2. Click **Current Repository** in the top-left toolbar.
 3. Select **X-Now** from your list of repositories.
-   - *If X-Now is not in the list*: Click **File** → **Add Local Repository...** (or press `Ctrl + O`), browse to `C:\Users\Benedictus\Desktop\X-Now`, and click **Add repository**.
+   - *If X-Now is not in the list*: Click **File** → **Add Local Repository...** (or press `Ctrl + O`), browse to `<path-to>\X-Now`, and click **Add repository**.
 4. Confirm that the **Current Branch** indicates `main`.
 
 ---
@@ -113,7 +115,7 @@ Once your commit is pushed to GitHub, you can publish the official **v2.1.0** re
 
 ### Option A: Push the Semantic Release Tag (Recommended)
 
-In any terminal (PowerShell, Command Prompt, or Git Bash) inside `C:\Users\Benedictus\Desktop\X-Now`:
+In any terminal (PowerShell, Command Prompt, or Git Bash) inside `<path-to>\X-Now`:
 
 ```bash
 git tag v2.1.0

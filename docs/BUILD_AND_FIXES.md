@@ -1,5 +1,7 @@
 # X-Now — Build & Rendering-Fix Guide (v2.1.0)
 
+> **Current release: v2.5.0.** The release process has changed (manual dispatch, one universal installer per platform). See [`RELEASE_PIPELINE.md`](RELEASE_PIPELINE.md) and [`releases/X-Now_v2.5.0.md`](releases/X-Now_v2.5.0.md). The rendering-fix content below still applies.
+
 > **Read this file before touching `src-tauri/src/lib.rs`, `src-tauri/src/tray.rs`, `frontend/x-tools.js`, or building any installer.**
 > It documents the v2.1.0 rendering pipeline fixes (bleached screen, black flash bands, scroll flashing), exactly how each fix works, how to build, and how to verify nothing regressed.
 > Audience: future AI coding agents and human developers. Written 2026-09-13 after the v2.1.0 rendering-fix pass.
@@ -259,4 +261,4 @@ Verified at build time: 22 Rust tests, 88/88 JS harness assertions (incl. 15 vid
 2. §4 verification chain green (unit + harness + smoke test + log lines).
 3. Replace root `X-Now_v2.1.0.exe` with the verified exe; regenerate `checksums.txt`.
 4. `CHANGELOG.md` / `RELEASE_NOTES.md` / `README.md` updated; version identical in `tauri.conf.json`, `Cargo.toml`, `Cargo.lock` (the release pipeline hard-asserts this).
-5. Commit & push `main`; tag the release (`git tag v2.1.0 && git push origin v2.1.0`); verify GitHub Actions draft release at https://github.com/benedictusrey/X-Now.
+5. Commit and push. Then start the Release workflow from GitHub Actions (manual dispatch; see `RELEASE_PIPELINE.md`). Do not push a tag: the workflow does not run on tags.

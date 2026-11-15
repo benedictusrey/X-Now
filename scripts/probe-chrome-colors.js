@@ -20,7 +20,7 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   await new Promise(r => kill.on('exit', r));
   await sleep(800);
   const { spawn: sp } = require('child_process');
-  const proc = sp(EXE, [], { env: { ...process.env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${PORT}` }, stdio: 'ignore', detached: true });
+  const proc = sp(EXE, [], { env: { ...process.env, XNOW_WEBVIEW_ARGS: `--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,CalculateNativeWinOcclusion --disable-direct-composition-video-overlays --remote-debugging-port=${PORT}` }, stdio: 'ignore', detached: true });
   proc.unref();
   await sleep(4000);
 

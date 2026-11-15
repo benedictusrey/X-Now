@@ -72,13 +72,18 @@ Before making changes, please familiarize yourself with the high-level project s
 ```text
 X-Now/
 ├── frontend/
-│   └── x-tools.js          # In-page helper script embedded into the binary via include_str!
+│   ├── x-tools.js          # In-page helper script embedded into the binary via include_str!
+│   ├── x-settings.js       # Settings sheet and the in-page Light/Dark switch
+│   ├── x-rail.js           # X-Now and Refresh buttons beside the logo
+│   └── x-about.js          # About card
 │                           # (media saving, video mount guard, theme reporter, pause/resume)
 ├── src-tauri/
 │   ├── src/
 │   │   ├── lib.rs          # Core backend: window creation, watchdog, XNOWBG handler, commands
 │   │   ├── tray.rs         # Native tray menu, submenus, icon glyphs, native zoom engine
 │   │   ├── audio.rs        # Windows-only: Core Audio session mute guarantee
+│   │   ├── settings.rs     # settings.json store, validated patches, saved-media history
+│   │   ├── webview_sleep.rs# WebView2 page sleep while the window is hidden (Windows)
 │   │   └── main.rs         # Application entry point
 │   ├── capabilities/       # Tauri v2 ACL capabilities (remote-x-com origin permissions)
 │   ├── icons/              # Bundle icons (must be byte-identical to root icons/)
@@ -88,11 +93,14 @@ X-Now/
 ├── icons/                  # Source of truth master icons (ICO, PNG, ICNS, tray, menu)
 ├── scripts/
 │   ├── verify-xnow-helpers.js      # jsdom contract harness (88 assertions)
+│   ├── verify-xnow-ui.js           # jsdom UI harness (79 assertions)
+│   ├── verify-xnow-settings-live.js # live Settings and media checks over CDP
 │   ├── xnow-flash-smoke-test.js    # Playwright/CDP scroll-flash measurement
 │   └── xnow-screencast-flash-test.js # Per-frame CDP screencast analysis
 ├── docs/
 │   ├── BUILD_AND_FIXES.md          # Technical reference for all rendering fixes
 │   ├── RELEASE_PIPELINE.md         # GitHub Actions multi-platform release guide
+│   ├── releases/                   # Per-version release notes and implementation records
 │   └── GITHUB_DESKTOP_PUBLISHING.md# Publishing guide using GitHub Desktop
 └── .github/
     ├── workflows/release.yml       # Cross-platform release automation
@@ -104,7 +112,7 @@ Violating these rules has historically led to regressions. Please adhere to them
 
 1. **`frontend/x-tools.js` is Embedded**: This script is baked into the executable using `include_str!`. Editing it requires recompiling the Rust binary (`cargo build`).
 2. **Always Sync Icons**: `src-tauri/icons/` must be byte-for-byte identical to root `icons/`. Running `build.rs` watches these files so changes recompile Windows resource files properly.
-3. **Never Bypass `build.rs` Command Declarations**: Tauri v2 enforces strict origin ACLs. Because `x.com` is a remote origin, all invokable commands (`open_external_url`, `save_media_bytes`, `download_media`, `prepare_download_folder`) must remain declared in `build.rs` and granted in `capabilities/remote.json`.
+3. **Never Bypass `build.rs` Command Declarations**: Tauri v2 enforces strict origin ACLs. Because `x.com` is a remote origin, every invokable command (the list in `src-tauri/build.rs`) must remain declared there and granted in `capabilities/remote.json`.
 4. **Never Hardcode Background Colors**: WebView2 background colors must flow dynamically through the `XNOWBG` runtime protocol. Hardcoding colors reintroduces flash bands on contrasting themes.
 5. **Keep Windows Audio Dependencies Target-Gated**: In `Cargo.toml`, the `windows` crate dependency must remain strictly inside `[target.'cfg(windows)'.dependencies]`. Ungating it breaks Linux and macOS builds.
 6. **Preserve the 5 Launch-Arg Toggles**: The `--no-occlusion-fix`, `--no-gpu-video-overlays-fix`, `--webview-default`, `--webview-args`, and `--webview-diagnostics` switches are essential for diagnosing and bisecting rendering issues.
@@ -148,14 +156,14 @@ cargo build --release
 
 Every Pull Request must pass our complete verification chain before merging:
 
-1. **Rust Unit Tests (22 Tests)**
+1. **Rust Unit Tests (40 Tests)**
    ```bash
    cd src-tauri && cargo test --lib
    ```
    Covers launch configuration parsing, CSS color parsing, argument precedence, and feature toggles.
 2. **JavaScript Contract Harness (88 Assertions)**
    ```bash
-   npm test
+   npm run test:all
    # Or: node scripts/verify-xnow-helpers.js
    ```
    Validates page-side contracts: pause/resume idempotency, media candidate resolution, video mount guard behaviors, and theme reporting strings.
@@ -193,7 +201,7 @@ Every Pull Request must pass our complete verification chain before merging:
 4. **Implement Your Changes**:
    Follow project conventions, keep edits minimal and idiomatic, and avoid unnecessary dependencies.
 5. **Run the Verification Tests**:
-   Ensure both `cargo test --lib` and `npm test` are green.
+   Ensure both `cargo test --lib` and `npm run test:all` are green.
 6. **Commit Your Changes**:
    Write clear, concise commit messages following conventional commits:
    ```bash

@@ -94,7 +94,8 @@ let toast = doc.querySelector('.xnow-toast');
 assert(!!toast && toast.querySelector('.xnow-toast-title')?.textContent === 'hello',
   'showToast creates .xnow-toast with the message');
 window.showToast('second');
-assert(doc.querySelectorAll('.xnow-toast').length === 1, 'showToast replaces the previous toast');
+// The replaced card fades out (is-leaving) for 170 ms before it is removed.
+assert(doc.querySelectorAll('.xnow-toast:not(.is-leaving)').length === 1, 'showToast replaces the previous toast');
 
 // ── Active video contract (used by Rust REPORT_JS) ───────────────────────────
 assert(typeof window.__xnowActiveVideo === 'function', '__xnowActiveVideo exposed');
@@ -196,7 +197,7 @@ win2.setTimeout(() => {
   const menu = doc2.querySelector('.xnow-media-menu');
   assert(!!menu, 'media menu created on right-click');
   const labels = Array.from(menu.querySelectorAll('button')).map(b => b.textContent);
-  assert(labels.some(l => l.includes('Save image to Downloads\\X-Now')), 'menu offers Save image');
+  assert(labels.some(l => l.includes('Save image to the X-Now folder')), 'menu offers Save image');
   assert(labels.some(l => l.includes('Open post in default browser')), 'menu offers Open post in browser');
 
   // ── Handle detection for the native titlebar ─────────────────────────────────

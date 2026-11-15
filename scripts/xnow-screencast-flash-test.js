@@ -346,8 +346,8 @@ async function backToTop(page) {
     stdio: ['ignore', logFd, logFd],
     env: {
       ...process.env,
-      WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:
-        `--remote-debugging-port=${PORT}${EXTRA ? ' ' + EXTRA : ''}`,
+      XNOW_WEBVIEW_ARGS:
+        `--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,CalculateNativeWinOcclusion --disable-direct-composition-video-overlays --remote-debugging-port=${PORT}${EXTRA ? ' ' + EXTRA : ''}`,
     },
   });
   proc.on('exit', (code) => console.log(`[sc] X-Now exited early code=${code}`));

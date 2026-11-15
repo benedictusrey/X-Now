@@ -1,44 +1,93 @@
+# Release builds for X-Now: one universal installer per platform.
+#   Windows  x64  NSIS setup .exe, WiX .msi, standalone portable .exe
+#   macOS    universal .dmg (Apple Silicon arm64 + Intel x86_64 in one file)
+#   Linux    x64 AppImage (runs on any distro), .deb and .rpm
+#
+# Manual only (workflow_dispatch). A tag push does not start a build, so the
+# macOS runner (billed at 10x Linux) runs only when someone asks for a release.
+# Run it from Actions > Release > Run workflow, on the branch that holds the
+# release commit. The job stops early if the versions or release notes do not match.
+
 name: Release
 
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
     inputs:
-      app_version:
-        description: 'Application version (e.g. 2.1.0)'
-        required: true
-        default: '2.1.0'
-        type: string
       release_tag:
-        description: 'GitHub Release tag (e.g. v2.1.0)'
+        description: 'Release tag, e.g. v2.5.0. Must equal the version in all four manifests.'
         required: true
-        default: 'v2.1.0'
+        default: 'v2.5.0'
         type: string
       publish_release:
-        description: 'Create draft GitHub Release with verified assets'
+        description: 'Create a DRAFT GitHub Release with the verified assets'
         required: true
         default: true
         type: boolean
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: xnow-release-${{ github.ref }}
+  group: xnow-release-${{ inputs.release_tag }}
   cancel-in-progress: false
 
 env:
-  APP_VERSION: ${{ github.event.inputs.app_version || vars.XNOW_APP_VERSION || '2.1.0' }}
-  RELEASE_TAG: ${{ github.event.inputs.release_tag || github.ref_name }}
+  # Must match the tauri crate version in src-tauri/Cargo.lock.
+  TAURI_CLI_VERSION: '2.11.5'
 
 jobs:
-  # ── Linux x64: AppImage + Debian (.deb) + RPM (.rpm) ──────────────────────
+  # ── 0. Stop early when the tag, manifests or release notes disagree ───────
+  version:
+    name: Check version alignment
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+      notes: ${{ steps.check.outputs.notes }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify tag, manifests and release notes
+        id: check
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          if ! [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::release_tag must look like v2.5.0, got '$RELEASE_TAG'"
+            exit 1
+          fi
+          version="${RELEASE_TAG#v}"
+          conf="$(node -p 'require("./src-tauri/tauri.conf.json").version')"
+          pkg="$(node -p 'require("./package.json").version')"
+          cargo="$(sed -n 's/^version = "\(.*\)"$/\1/p' src-tauri/Cargo.toml | head -n 1)"
+          lock="$(awk '/^name = "x-now"$/ {getline; gsub(/version = |"/, ""); print; exit}' src-tauri/Cargo.lock)"
+          for found in "$conf" "$pkg" "$cargo" "$lock"; do
+            if [ "$found" != "$version" ]; then
+              echo "::error::Version mismatch: tag says $version but a manifest says '$found'. tauri.conf.json, package.json, Cargo.toml and Cargo.lock must all match."
+              exit 1
+            fi
+          done
+          notes="docs/releases/X-Now_v${version}.md"
+          if [ ! -f "$notes" ]; then
+            echo "::error::Missing release notes: $notes"
+            exit 1
+          fi
+          {
+            echo "version=$version"
+            echo "notes=$notes"
+          } >> "$GITHUB_OUTPUT"
+
+  # ── 1. Linux x64: AppImage (any distro) + DEB + RPM ──────────────────────
   build-linux:
-    name: Linux x64 bundles (AppImage + DEB + RPM)
+    name: Linux x64 (AppImage, DEB, RPM)
+    needs: version
     runs-on: ubuntu-22.04
     timeout-minutes: 45
+    env:
+      APP_VERSION: ${{ needs.version.outputs.version }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -63,79 +112,62 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            build-essential \
-            curl \
-            wget \
-            file \
-            libssl-dev \
-            libxdo-dev \
-            libwebkit2gtk-4.1-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            patchelf \
-            rpm \
-            libfuse2
+            build-essential curl wget file libssl-dev libxdo-dev \
+            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
+            patchelf rpm libfuse2
 
       - name: Install Tauri CLI
         shell: bash
-        run: npm install -g @tauri-apps/cli@^2
+        run: npm install -g "@tauri-apps/cli@${TAURI_CLI_VERSION}"
 
-      - name: Sync brand icons to bundle
+      - name: Verify brand icons are identical to icons/
         shell: bash
         run: |
-          mkdir -p src-tauri/icons
+          set -euo pipefail
           for f in icon.ico icon.png icon.icns 32x32.png 128x128.png 128x128@2x.png; do
-            if [ -f "icons/$f" ]; then
-              cp "icons/$f" "src-tauri/icons/$f"
-            fi
+            cmp -s "icons/$f" "src-tauri/icons/$f" || { echo "::error::src-tauri/icons/$f differs from icons/$f"; exit 1; }
           done
 
-      - name: Build Linux packages (AppImage, DEB, RPM)
+      - name: Build AppImage, DEB and RPM
         shell: bash
         env:
           APPIMAGE_EXTRACT_AND_RUN: 1
         run: tauri build --ci --bundles appimage,deb,rpm
 
-      - name: Normalize and verify Linux assets
+      - name: Collect and verify Linux assets
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p out
+          bundle=src-tauri/target/release/bundle
+          appimage="$(find "$bundle/appimage" -name '*.AppImage' -print -quit)"
+          deb="$(find "$bundle/deb" -name '*.deb' -print -quit)"
+          rpm="$(find "$bundle/rpm" -name '*.rpm' -print -quit)"
+          if [ -z "$appimage" ] || [ -z "$deb" ] || [ -z "$rpm" ]; then
+            echo "::error::Tauri did not produce all three Linux bundles (AppImage, DEB, RPM)."
+            exit 1
+          fi
+          mkdir -p dist
+          cp "$appimage" "dist/X-Now_${APP_VERSION}_amd64.AppImage"
+          cp "$deb" "dist/X-Now_${APP_VERSION}_amd64.deb"
+          cp "$rpm" "dist/X-Now_${APP_VERSION}_x86_64.rpm"
 
-          appimage="$(find src-tauri/target -type f -name '*.AppImage' -print -quit 2>/dev/null)"
-          deb="$(find src-tauri/target -type f -name '*.deb' -print -quit 2>/dev/null)"
-          rpm="$(find src-tauri/target -type f -name '*.rpm' -print -quit 2>/dev/null)"
-
-          test -n "${appimage}" || { echo "::error::Tauri did not produce an AppImage."; exit 1; }
-          test -n "${deb}" || { echo "::error::Tauri did not produce a Debian package."; exit 1; }
-          test -n "${rpm}" || { echo "::error::Tauri did not produce an RPM package."; exit 1; }
-
-          cp "${appimage}" "out/X-Now_${APP_VERSION}_amd64.AppImage"
-          cp "${deb}" "out/X-Now_${APP_VERSION}_amd64.deb"
-          cp "${rpm}" "out/X-Now_${APP_VERSION}_x86_64.rpm"
-
-          (cd out && sha256sum \
-            "X-Now_${APP_VERSION}_amd64.AppImage" \
-            "X-Now_${APP_VERSION}_amd64.deb" \
-            "X-Now_${APP_VERSION}_x86_64.rpm" > checksums-linux.sha256)
-
-      - name: Upload Linux workflow artifacts
+      - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4
         with:
           name: X-Now-${{ env.APP_VERSION }}-linux-x64
-          path: |
-            out/X-Now_${{ env.APP_VERSION }}_amd64.AppImage
-            out/X-Now_${{ env.APP_VERSION }}_amd64.deb
-            out/X-Now_${{ env.APP_VERSION }}_x86_64.rpm
-            out/checksums-linux.sha256
+          path: dist/*
           if-no-files-found: error
           retention-days: 30
 
-  # ── macOS: Universal DMG (Apple Silicon arm64 + Intel x86_64) ─────────────
+  # ── 2. macOS: one universal DMG (arm64 + x86_64) ─────────────────────────
   build-macos:
-    name: macOS universal bundle (Apple Silicon + Intel)
+    name: macOS universal (Apple Silicon + Intel)
+    needs: version
     runs-on: macos-14
     timeout-minutes: 45
+    env:
+      APP_VERSION: ${{ needs.version.outputs.version }}
+      MACOSX_DEPLOYMENT_TARGET: '11.0'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -145,7 +177,7 @@ jobs:
         with:
           node-version: 22
 
-      - name: Install Rust (Apple Silicon + Intel cross targets)
+      - name: Install Rust (Apple Silicon and Intel targets)
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-darwin, x86_64-apple-darwin
@@ -157,59 +189,54 @@ jobs:
 
       - name: Install Tauri CLI
         shell: bash
-        run: npm install -g @tauri-apps/cli@^2
+        run: npm install -g "@tauri-apps/cli@${TAURI_CLI_VERSION}"
 
-      - name: Sync brand icons to bundle
-        shell: bash
-        run: |
-          mkdir -p src-tauri/icons
-          for f in icon.ico icon.png icon.icns 32x32.png 128x128.png 128x128@2x.png; do
-            if [ -f "icons/$f" ]; then
-              cp "icons/$f" "src-tauri/icons/$f"
-            fi
-          done
-
-      - name: Build universal macOS DMG
-        shell: bash
-        env:
-          MACOSX_DEPLOYMENT_TARGET: "11.0"
-        run: tauri build --ci --target universal-apple-darwin --bundles dmg
-
-      - name: Verify universal slices and normalize macOS assets
+      - name: Verify brand icons are identical to icons/
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p out
+          for f in icon.ico icon.png icon.icns 32x32.png 128x128.png 128x128@2x.png; do
+            cmp -s "icons/$f" "src-tauri/icons/$f" || { echo "::error::src-tauri/icons/$f differs from icons/$f"; exit 1; }
+          done
 
-          app_binary="$(find src-tauri/target -type f -path '*/Contents/MacOS/X-Now' -print -quit 2>/dev/null)"
-          if [ -n "$app_binary" ]; then
-            archs="$(lipo -archs "$app_binary")"
-            echo "Universal binary architectures: $archs"
-            case "$archs" in *arm64*) ;; *) echo "::error::arm64 slice is missing from universal binary"; exit 1 ;; esac
-            case "$archs" in *x86_64*) ;; *) echo "::error::x86_64 slice is missing from universal binary"; exit 1 ;; esac
+      - name: Build universal DMG
+        shell: bash
+        run: tauri build --ci --target universal-apple-darwin --bundles dmg
+
+      - name: Verify universal slices and collect the DMG
+        shell: bash
+        run: |
+          set -euo pipefail
+          bundle=src-tauri/target/universal-apple-darwin/release/bundle
+          app_binary="$(find "$bundle/macos" -path '*/Contents/MacOS/*' -type f -print -quit)"
+          dmg="$(find "$bundle/dmg" -name '*.dmg' -print -quit)"
+          if [ -z "$app_binary" ] || [ -z "$dmg" ]; then
+            echo "::error::Tauri did not produce the app binary or the DMG."
+            exit 1
           fi
+          archs="$(lipo -archs "$app_binary")"
+          echo "Universal binary architectures: $archs"
+          [[ " $archs " == *" arm64 "* ]] || { echo "::error::arm64 slice is missing"; exit 1; }
+          [[ " $archs " == *" x86_64 "* ]] || { echo "::error::x86_64 slice is missing"; exit 1; }
+          mkdir -p dist
+          cp "$dmg" "dist/X-Now_${APP_VERSION}_universal.dmg"
 
-          dmg="$(find src-tauri/target -type f -name '*.dmg' -print -quit 2>/dev/null)"
-          test -n "${dmg}" || { echo "::error::Tauri did not produce a universal DMG."; exit 1; }
-
-          cp "${dmg}" "out/X-Now_${APP_VERSION}_universal.dmg"
-          (cd out && shasum -a 256 "X-Now_${APP_VERSION}_universal.dmg" > checksums-macos.sha256)
-
-      - name: Upload macOS workflow artifacts
+      - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
         with:
           name: X-Now-${{ env.APP_VERSION }}-macos-universal
-          path: |
-            out/X-Now_${{ env.APP_VERSION }}_universal.dmg
-            out/checksums-macos.sha256
+          path: dist/*
           if-no-files-found: error
           retention-days: 30
 
-  # ── Windows x64: NSIS .exe + WiX .msi + Standalone portable .exe ──────────
+  # ── 3. Windows x64: NSIS setup, MSI and portable exe ─────────────────────
   build-windows:
-    name: Windows x64 bundles (NSIS + MSI + portable)
+    name: Windows x64 (setup, MSI, portable)
+    needs: version
     runs-on: windows-latest
     timeout-minutes: 45
+    env:
+      APP_VERSION: ${{ needs.version.outputs.version }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -231,70 +258,56 @@ jobs:
 
       - name: Install Tauri CLI
         shell: bash
-        run: npm install -g @tauri-apps/cli@^2
+        run: npm install -g "@tauri-apps/cli@${TAURI_CLI_VERSION}"
 
-      - name: Sync brand icons to bundle
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          New-Item -ItemType Directory -Force -Path src-tauri/icons | Out-Null
-          foreach ($f in @('icon.ico', 'icon.png', 'icon.icns', '32x32.png', '128x128.png', '128x128@2x.png')) {
-            if (Test-Path "icons/$f") {
-              Copy-Item "icons/$f" "src-tauri/icons/$f" -Force
-            }
-          }
-
-      - name: Build NSIS installer and MSI
-        shell: bash
-        run: tauri build --ci --target x86_64-pc-windows-msvc --bundles nsis,msi
-
-      - name: Build portable standalone executable
-        shell: bash
-        working-directory: src-tauri
-        run: cargo build --release --target x86_64-pc-windows-msvc
-
-      - name: Normalize and verify Windows assets
+      - name: Verify brand icons are identical to icons/
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p out
+          for f in icon.ico icon.png icon.icns 32x32.png 128x128.png 128x128@2x.png; do
+            cmp -s "icons/$f" "src-tauri/icons/$f" || { echo "::error::src-tauri/icons/$f differs from icons/$f"; exit 1; }
+          done
 
-          setup="$(find src-tauri/target -type f -name '*setup.exe' -print -quit 2>/dev/null || find src-tauri/target -type f -name '*.exe' -path '*nsis*' -print -quit 2>/dev/null)"
-          msi="$(find src-tauri/target -type f -name '*.msi' -print -quit 2>/dev/null)"
-          portable="$(find src-tauri/target -type f -name 'X-Now.exe' ! -path '*/deps/*' ! -path '*/build/*' ! -path '*/incremental/*' -print -quit 2>/dev/null)"
+      - name: Build NSIS setup and MSI
+        shell: bash
+        run: tauri build --ci --target x86_64-pc-windows-msvc --bundles nsis,msi
 
-          test -n "${setup}" || { echo "::error::Tauri did not produce an NSIS installer."; exit 1; }
-          test -n "${msi}" || { echo "::error::Tauri did not produce an MSI package."; exit 1; }
-          test -n "${portable}" || { echo "::error::Cargo build did not produce X-Now.exe."; exit 1; }
+      - name: Collect and verify Windows assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          target=src-tauri/target/x86_64-pc-windows-msvc/release
+          setup="$(find "$target/bundle/nsis" -name '*-setup.exe' -print -quit)"
+          msi="$(find "$target/bundle/msi" -name '*.msi' -print -quit)"
+          portable="$target/X-Now.exe"
+          if [ -z "$setup" ] || [ -z "$msi" ] || [ ! -f "$portable" ]; then
+            echo "::error::Missing a Windows asset (setup .exe, .msi or X-Now.exe)."
+            exit 1
+          fi
+          mkdir -p dist
+          cp "$setup" "dist/X-Now_${APP_VERSION}_windows_x64-setup.exe"
+          cp "$msi" "dist/X-Now_${APP_VERSION}_windows_x64_en-US.msi"
+          cp "$portable" "dist/X-Now_${APP_VERSION}_windows_x64-portable.exe"
 
-          cp "${setup}" "out/X-Now_${APP_VERSION}_windows_x64-setup.exe"
-          cp "${msi}" "out/X-Now_${APP_VERSION}_windows_x64_en-US.msi"
-          cp "${portable}" "out/X-Now_${APP_VERSION}_windows_x64-portable.exe"
-
-          (cd out && sha256sum \
-            "X-Now_${APP_VERSION}_windows_x64-setup.exe" \
-            "X-Now_${APP_VERSION}_windows_x64_en-US.msi" \
-            "X-Now_${APP_VERSION}_windows_x64-portable.exe" > checksums-windows.sha256)
-
-      - name: Upload Windows workflow artifacts
+      - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
           name: X-Now-${{ env.APP_VERSION }}-windows-x64
-          path: |
-            out/X-Now_${{ env.APP_VERSION }}_windows_x64-setup.exe
-            out/X-Now_${{ env.APP_VERSION }}_windows_x64_en-US.msi
-            out/X-Now_${{ env.APP_VERSION }}_windows_x64-portable.exe
-            out/checksums-windows.sha256
+          path: dist/*
           if-no-files-found: error
           retention-days: 30
 
-  # ── Publish: Download all platform bundles & publish draft GitHub release ─
+  # ── 4. Gather everything, verify, and create a DRAFT release ─────────────
   publish:
     name: Create draft GitHub Release
-    needs: [build-linux, build-windows, build-macos]
-    if: ${{ github.event_name == 'push' || github.event.inputs.publish_release == 'true' }}
+    needs: [version, build-linux, build-macos, build-windows]
+    if: ${{ inputs.publish_release }}
     runs-on: ubuntu-22.04
     timeout-minutes: 20
+    permissions:
+      contents: write
+    env:
+      APP_VERSION: ${{ needs.version.outputs.version }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -306,52 +319,44 @@ jobs:
           path: dist
           merge-multiple: true
 
-      - name: Create and verify combined checksum manifests
+      - name: Write and verify SHA256SUMS.txt
         shell: bash
         run: |
           set -euo pipefail
-          expected=(
-            "dist/X-Now_${APP_VERSION}_amd64.AppImage"
-            "dist/X-Now_${APP_VERSION}_amd64.deb"
-            "dist/X-Now_${APP_VERSION}_x86_64.rpm"
-            "dist/X-Now_${APP_VERSION}_windows_x64-setup.exe"
-            "dist/X-Now_${APP_VERSION}_windows_x64_en-US.msi"
-            "dist/X-Now_${APP_VERSION}_windows_x64-portable.exe"
-            "dist/X-Now_${APP_VERSION}_universal.dmg"
+          cd dist
+          files=(
+            "X-Now_${APP_VERSION}_amd64.AppImage"
+            "X-Now_${APP_VERSION}_amd64.deb"
+            "X-Now_${APP_VERSION}_x86_64.rpm"
+            "X-Now_${APP_VERSION}_universal.dmg"
+            "X-Now_${APP_VERSION}_windows_x64-setup.exe"
+            "X-Now_${APP_VERSION}_windows_x64_en-US.msi"
+            "X-Now_${APP_VERSION}_windows_x64-portable.exe"
           )
-
-          for asset in "${expected[@]}"; do
-            test -f "${asset}" || { echo "::error::Missing expected release asset: ${asset}"; exit 1; }
+          for f in "${files[@]}"; do
+            test -f "$f" || { echo "::error::Missing release asset: $f"; exit 1; }
           done
+          sha256sum "${files[@]}" > SHA256SUMS.txt
+          sha256sum -c SHA256SUMS.txt
+          ls -l
 
-          (cd dist && sha256sum \
-            "X-Now_${APP_VERSION}_amd64.AppImage" \
-            "X-Now_${APP_VERSION}_amd64.deb" \
-            "X-Now_${APP_VERSION}_x86_64.rpm" \
-            "X-Now_${APP_VERSION}_windows_x64-setup.exe" \
-            "X-Now_${APP_VERSION}_windows_x64_en-US.msi" \
-            "X-Now_${APP_VERSION}_windows_x64-portable.exe" \
-            "X-Now_${APP_VERSION}_universal.dmg" | tee SHA256SUMS.txt > checksums.sha256)
-
-          (cd dist && sha256sum -c checksums.sha256)
-
-      - name: Upload draft release assets
+      - name: Create draft GitHub Release
         uses: softprops/action-gh-release@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: ${{ env.RELEASE_TAG }}
+          tag_name: ${{ inputs.release_tag }}
           name: X-Now ${{ env.APP_VERSION }}
-          body_path: RELEASE_NOTES.md
+          body_path: ${{ needs.version.outputs.notes }}
           draft: true
           prerelease: false
+          fail_on_unmatched_files: true
           files: |
             dist/X-Now_${{ env.APP_VERSION }}_amd64.AppImage
             dist/X-Now_${{ env.APP_VERSION }}_amd64.deb
             dist/X-Now_${{ env.APP_VERSION }}_x86_64.rpm
+            dist/X-Now_${{ env.APP_VERSION }}_universal.dmg
             dist/X-Now_${{ env.APP_VERSION }}_windows_x64-setup.exe
             dist/X-Now_${{ env.APP_VERSION }}_windows_x64_en-US.msi
             dist/X-Now_${{ env.APP_VERSION }}_windows_x64-portable.exe
-            dist/X-Now_${{ env.APP_VERSION }}_universal.dmg
             dist/SHA256SUMS.txt
-            dist/checksums.sha256

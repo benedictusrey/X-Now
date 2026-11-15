@@ -8,8 +8,9 @@ The security, privacy, and integrity of **X-Now** and its users are top prioriti
 
 | Version | Supported | Security Maintenance |
 | :--- | :---: | :--- |
-| **`2.1.x`** | ✅ | Active security support and bug fixes (current release line) |
-| `2.0.x` | ⚠️ | Previous release line; update to v2.1.x when possible |
+| **`2.5.x`** | ✅ | Active security support and bug fixes (current release line) |
+| `2.1.x` | ⚠️ | Previous release line; update to v2.5.x when possible |
+| `2.0.x` | ⚠️ | Previous release line; update to v2.5.x when possible |
 | `1.0.x` – `1.1.x` | ⚠️ | Legacy — maintained only for critical security issues |
 | `< 1.0.0` | ❌ | Pre-release / superseded versions |
 
@@ -26,7 +27,7 @@ The security, privacy, and integrity of **X-Now** and its users are top prioriti
 X-Now is a Tauri v2 app whose only page is the official x.com website. Tauri's access-control list (ACL) is therefore configured with least privilege:
 
 - **Local origin** (the app shell): `core:default` + `shell:allow-open`.
-- **Remote origin** (`https://x.com/*`, capability `remote-x-com`): **exactly four** app commands — `download_media` (curl a direct media URL to `Downloads\X-Now`), `save_media_bytes` (write in-page-fetched bytes), `open_external_url` (open a link in the OS default browser), `prepare_download_folder` (create the folder). The x.com page cannot reach window, shell, file-system, or any other command.
+- **Remote origin** (`https://x.com/*`, capability `remote-x-com`): **exactly seven** app commands, listed in `src-tauri/capabilities/remote.json`: `download_media` (curl a direct media URL to `Downloads\X-Now`; only X's own hosts — `x.com`, `twitter.com`, `*.twimg.com`), `save_media_bytes` (write in-page-fetched bytes), `open_external_url` (open a link in the OS default browser), `prepare_download_folder` (create the folder), `get_settings` and `update_settings` (validated patches only; launch-at-login cannot be set from the page), and `open_saved_folder` (only folders X-Now saved). The x.com page cannot reach window, shell, file-system, or any other command.
 
 Media saving is opt-in and local. Downloads go only to `Downloads\X-Now` (or your OS's equivalent download folder). Nothing is uploaded anywhere.
 - **Media is fetched as the page exposes it.** X-Now downloads X's CDN URLs (`pbs.twimg.com`, `video.twimg.com`) with a standard browser user-agent and the post URL as referer; it does not bypass X access controls.
@@ -41,7 +42,7 @@ Media saving is opt-in and local. Downloads go only to `Downloads\X-Now` (or you
 
 ## Release authenticity
 
-The current v2.1.0 release packages are unsigned. Windows SmartScreen and macOS Gatekeeper can show warnings for that reason. Download packages from the project's official GitHub Release, compare their hashes with `SHA256SUMS.txt`, and install only files whose hashes match. Code signing and notarization will be added when release certificates are configured.
+The current v2.5.0 release packages are unsigned. Windows SmartScreen and macOS Gatekeeper can show warnings for that reason. Download packages from the project's official GitHub Release, compare their hashes with `SHA256SUMS.txt`, and install only files whose hashes match. Code signing and notarization will be added when release certificates are configured.
 
 ## 📋 What to Treat as Private
 

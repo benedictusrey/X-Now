@@ -393,10 +393,22 @@
           "markdownDescription": "Enables the download_media command without any pre-configured scope."
         },
         {
+          "description": "Enables the get_settings command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-settings",
+          "markdownDescription": "Enables the get_settings command without any pre-configured scope."
+        },
+        {
           "description": "Enables the open_external_url command without any pre-configured scope.",
           "type": "string",
           "const": "allow-open-external-url",
           "markdownDescription": "Enables the open_external_url command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the open_saved_folder command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-open-saved-folder",
+          "markdownDescription": "Enables the open_saved_folder command without any pre-configured scope."
         },
         {
           "description": "Enables the prepare_download_folder command without any pre-configured scope.",
@@ -411,16 +423,34 @@
           "markdownDescription": "Enables the save_media_bytes command without any pre-configured scope."
         },
         {
+          "description": "Enables the update_settings command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-update-settings",
+          "markdownDescription": "Enables the update_settings command without any pre-configured scope."
+        },
+        {
           "description": "Denies the download_media command without any pre-configured scope.",
           "type": "string",
           "const": "deny-download-media",
           "markdownDescription": "Denies the download_media command without any pre-configured scope."
         },
         {
+          "description": "Denies the get_settings command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-settings",
+          "markdownDescription": "Denies the get_settings command without any pre-configured scope."
+        },
+        {
           "description": "Denies the open_external_url command without any pre-configured scope.",
           "type": "string",
           "const": "deny-open-external-url",
           "markdownDescription": "Denies the open_external_url command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the open_saved_folder command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-open-saved-folder",
+          "markdownDescription": "Denies the open_saved_folder command without any pre-configured scope."
         },
         {
           "description": "Denies the prepare_download_folder command without any pre-configured scope.",
@@ -433,6 +463,12 @@
           "type": "string",
           "const": "deny-save-media-bytes",
           "markdownDescription": "Denies the save_media_bytes command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the update_settings command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-update-settings",
+          "markdownDescription": "Denies the update_settings command without any pre-configured scope."
         },
         {
           "description": "This permission set configures if your\napplication can enable or disable auto\nstarting the application on boot.\n\n#### Granted Permissions\n\nIt allows all to check, enable and\ndisable the automatic start on boot.\n\n\n#### This default permission set includes:\n\n- `allow-enable`\n- `allow-disable`\n- `allow-is-enabled`",
