@@ -23,7 +23,7 @@ Run it on the branch that holds the release commit (normally `main`, or the rele
 |---|---|---|---|
 | `version` | `ubuntu-22.04` | none (outputs the version and the notes path) | Stops the run early if anything disagrees. |
 | `build-windows` | `windows-latest` | NSIS setup `.exe`, WiX `.msi`, portable `.exe` | Windows 10/11 x64. Requires WebView2. |
-| `build-macos` | `macos-14` | Universal `.dmg` (`arm64` + `x86_64`) | One DMG for Apple Silicon and Intel. `lipo` checks both slices. |
+| `build-macos` | `macos-15` | Universal `.dmg` (`arm64` + `x86_64`) | One DMG for Apple Silicon and Intel. `lipo` checks both slices. |
 | `build-linux` | `ubuntu-22.04` | `.AppImage`, `.deb`, `.rpm` | x64. The AppImage runs on most distributions without installing. |
 | `publish` | `ubuntu-22.04` | Draft GitHub Release and `SHA256SUMS.txt` | Runs only when `publish_release` is `true`. |
 

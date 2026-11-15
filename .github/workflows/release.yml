@@ -163,7 +163,10 @@ jobs:
   build-macos:
     name: macOS universal (Apple Silicon + Intel)
     needs: version
-    runs-on: macos-14
+    # macos-14 is no longer supported for this repository (job cancelled with
+    # "configuration 'macos-14-arm64-us-default' is not supported"). macos-15 is the
+    # current arm64 image; the universal build cross-compiles x86_64 from it.
+    runs-on: macos-15
     timeout-minutes: 45
     env:
       APP_VERSION: ${{ needs.version.outputs.version }}
