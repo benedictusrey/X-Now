@@ -211,10 +211,11 @@ jobs:
         run: |
           set -euo pipefail
           bundle=src-tauri/target/universal-apple-darwin/release/bundle
-          app_binary="$(find "$bundle/macos" -path '*/Contents/MacOS/*' -type f -print -quit)"
+          # Tauri deletes bundle/macos/X-Now.app after packaging; read the binary before that.
+          app_binary=src-tauri/target/universal-apple-darwin/release/X-Now
           dmg="$(find "$bundle/dmg" -name '*.dmg' -print -quit)"
-          if [ -z "$app_binary" ] || [ -z "$dmg" ]; then
-            echo "::error::Tauri did not produce the app binary or the DMG."
+          if [ ! -f "$app_binary" ] || [ -z "$dmg" ]; then
+            echo "::error::Tauri did not produce the universal binary or the DMG."
             exit 1
           fi
           archs="$(lipo -archs "$app_binary")"

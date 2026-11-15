@@ -225,9 +225,11 @@ Do not type credentials into anything except X's own page inside X-Now.
 | Windows installers built with `tauri build` | Built locally; SHA-256 below |
 | macOS DMG and Linux bundles | Built by the release workflow only; not run locally |
 
-### Local Windows artifacts (SHA-256)
+### Local Windows build hashes (SHA-256)
 
-| File | SHA-256 |
+These hashes are for local builds on the maintainer's machine, not for the release assets. The published release ships its own `SHA256SUMS.txt`, covering the seven files it attaches. Check downloads against that file.
+
+| File (local build) | SHA-256 |
 |---|---|
 | `X-Now_v2.5.0.exe` (standalone, repo root) | `9611d023415411fa78f6cabeb73a1d5bf1f402ba8930fcfd8e074a777a83a37b` |
 | `installers/X-Now_2.5.0_x64-setup.exe` | `281198051ba8aeada89759afe10af54009ef45ae657890fdf3b81bc0e7a5b0fe` |
