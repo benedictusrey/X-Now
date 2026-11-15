@@ -1,6 +1,6 @@
 # X-Now v2.5.0 — Release Notes and Implementation Record
 
-**Released:** 2026-11-16 · **Compared with:** v2.1.0 (the last published tag)
+**Release date:** 2026-11-16 (draft; not yet published) · **Compared with:** v2.1.0 (the last published tag)
 **Author:** Benedictus Reynaldo Hartanto ([@benedictusrey](https://github.com/benedictusrey))
 
 This file is the full record of v2.5.0: what changed, why, how each part is built, what was verified and what was not. The short user-facing summary is in [`RELEASE_NOTES.md`](../../RELEASE_NOTES.md); the version-by-version list is in [`CHANGELOG.md`](../../CHANGELOG.md).
@@ -43,7 +43,7 @@ The release also rewrites the release workflow so that one manual run produces o
 
 ### 3.1 What X's login page offers
 
-Checked read-only on the live login page in the app (no clicks on the account pages, no credentials entered):
+Checked on the live login page in the app. Clicks on the sign-in buttons opened only the provider's sign-in page; no credentials were entered:
 
 - **Continue with Google:** rendered by Google Identity Services in an iframe (`accounts.google.com/gsi/button`).
 - **Continue with Apple:** a script button.
