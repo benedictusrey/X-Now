@@ -6,60 +6,30 @@ All notable changes to **X-Now** are documented here. The format follows [Keep a
 
 ## [2.5.0] — 2026-11-16
 
+Download guide: [`docs/releases/X-Now_v2.5.0.md`](docs/releases/X-Now_v2.5.0.md) · Full technical record: [`docs/releases/X-Now_v2.5.0-record.md`](docs/releases/X-Now_v2.5.0-record.md)
+
 ### 🚀 Added
-- **Rail controls beside the X logo**: an X-Now button opens the new Settings panel, and a Refresh button loads new posts in place. Refresh uses X's own "Show N posts" pill and Home tab, so playing media and the scroll position survive; it falls back to a full reload only if X's Home link is missing.
-- **Settings panel** (opens from the X-Now button or the tray): a sheet that slides out from the rail with Window, Minimized, Quiet hours, Media, Saved media and Display sections. Every value is saved to `settings.json` in the app data folder.
-- **Quiet hours**: Off, Nights (23:00 to 07:00), or a custom window. While active, the page pauses and mutes video and blocks autoplay.
-- **Unmute videos when X-Now is active** (Settings, on by default): feed and opened videos play with sound while X-Now is the focused window. Each source is unmuted once, so a mute you set yourself stays until the next video.
-- **Saved media history**: the last 50 saves, each with a Show in folder button.
-- **Focus layout**: hides trends and promo cards in X's right column, where the column matches X's current layout.
-- **Tray Settings submenu**: every setting above, with checkmarks that stay in step with the panel, plus Quiet hours, Refresh feed and Open saved media folder.
-- **Video mount guard (the "shocking flash" fix)**: X mounts each feed video player's chrome BLACK for the first few compositor frames before any content (poster image or first video frame) paints — pixel-verified via per-frame screencast capture. The page now hides a freshly mounted or src-swapped `<video>` (and its dark player wrapper) until the first frame decodes, so the white card shows through instead of a black flash at every static↔video post transition. Contract-tested (`window.__xnowVideoMountGuard`); see `docs/BUILD_AND_FIXES.md` §2.5.
-- **Per-frame screencast flash harness**: `scripts/xnow-screencast-flash-test.js` captures EVERY compositor frame over CDP (screenshots structurally miss 1-frame transients) with masked tile-grid void detection, inside-rect flash detection, video-event correlation and a videos-blocked A/B phase; `scripts/tile-flip-diff.js`, `scripts/region-white-scan.js`, `scripts/analyze-void-evidence.js` and `scripts/probe-guard-state.js` support the analysis.
-- **Per-launch WebView2 workaround toggles + diagnostics mode**: every launch logs its effective webview configuration; `--no-occlusion-fix`, `--no-gpu-video-overlays-fix`, `--webview-default` (full stock restore) and `--webview-args "..."` / `XNOW_WEBVIEW_ARGS` toggle or replace the rendering workarounds without rebuilding; `--webview-diagnostics` logs webview runtime state at startup and on every hide/show transition.
-- **Scroll-flash smoke test**: `scripts/xnow-flash-smoke-test.js` drives the real app over CDP (Playwright), wheel-scrolls the feed, captures 40 consecutive frames plus 8 scroll-depth screenshots, and quantifies dark/white flash bands per frame — the regression harness for the rendering fixes.
+- **Settings panel** beside X's logo and in the tray: window, minimize, media, Quiet hours, zoom, theme, motion, focus layout and saved media (last 50 saves).
+- **Unmute videos when X-Now is active** (on by default).
+- **Quiet hours**: Nights (23:00 to 07:00) or a custom window. Pauses and mutes video while active.
+- **Refresh** beside the logo: loads new posts in place.
+- **Tray Settings submenu** and an *Open saved media folder* action.
+- **Scroll-flash tools** in `scripts/`: per-frame CDP harness and smoke test.
 
 ### ⚡ Changed
-- **Overlays use X's own palette** (black, dim or light, matched to the page theme) instead of one hard-coded dark tone.
-- **Motion**: toasts fade out instead of vanishing, the context menu and About card animate in, and every overlay control has a keyboard focus ring. The Settings "Motion" choice (System, Reduce, Full) and the Windows reduced-motion preference are both honored.
-- **Volumes**: the feed and opened-video volumes are settings (defaults unchanged: 20% and 50%).
-- **Zoom** is stored in settings, so it survives a restart.
-- **Theme-adaptive native background (scroll-flash fix)**: X resolves its theme asynchronously, so the page now reports its real background color (`XNOWBG:r,g,b`) and the app re-syncs the native WebView2 background at runtime (`Native background synced to page theme: #…` in the log). Unpainted compositor gaps — scroll raster tiles, restore frames — now fill with the SAME color as the surrounding content instead of flashing as a contrasting dark-on-light (or light-on-dark) band.
-- **WebView2 autoplay policy**: X-Now's WebView allows autoplay with sound (`--autoplay-policy=no-user-gesture-required`), so the Settings option above works right after launch. It applies to every page in the WebView, including the sign-in windows.
-- **Idle-aware timers (battery/CPU)**: the page's route/handle poll adapts to usage (1 s active → 5 s idle → 15 s deep-idle → 30 s hidden, instantly re-armed by input/visibility), and the Rust playback watchdog is event-driven — window events wake it instantly; its fallback poll dropped from 800 ms to 5 s (~6× fewer OS wakeups; hundreds saved per hour while hidden in the tray).
+- Settings are saved to `settings.json` in the app data folder.
+- The WebView allows autoplay with sound (`--autoplay-policy=no-user-gesture-required`) on every X-Now page.
+- Release workflow: one manual run builds every platform's installers. A tag push no longer starts it.
+- Repository layout: release files in `dist/`, probe scripts in `scripts/diagnostics/`.
 
 ### 🔧 Fixed
-- **Google and Apple sign-in windows** (details: `docs/releases/X-Now_v2.5.0.md` §3):
-  - Reloading X no longer closes an open sign-in window.
-  - X's own login page opens in the main window instead of a popup that closed itself.
-  - `window.open()` with no address opens as a sign-in window and closes after 15 seconds if nothing loads in it.
-  - A sign-in after a sign-out closes its sign-in window once the sign-in completes.
-  - Host matching is exact. Ordinary links such as `pineapple.com` or `/author/` paths open in the browser, not in a sign-in window.
-  - A sign-in window that fails to build, and an OS-browser open that fails, are now written to the app log.
-- **Task Manager icon was blank**: the window had no large icon, so the app row showed an empty tile. The window now sets its large icon from the app's own icon.
-- **Feed videos muted after every launch and reload**: the "unlocked" state lived only in memory, so each launch or reload muted feed videos until a click. The Settings option above removes that wait.
-- **Video sound silent in the foreground (Windows)**: X-Now's own audio session stayed muted in the Volume Mixer while its window was visible. The mute logic was rewritten: a visible window clears mutes X-Now did not set, and the `audio-muted.flag` marker clears a mute left behind by a crash.
-- **About card stayed open after toggling off**: its Escape listener leaked and moved focus on every later keypress.
-- **Context menu**: arrow keys and Home/End now move between items, and focus starts on the first one.
-- **Tray Navigate items did not restore a minimized window**: they now do.
-- **Stuck mute on quit**: the release on quit now runs on the UI thread, where COM is already initialized.
-- **Flashing/jaggy black bands while scrolling (the reported "glitch black flashing")**: two compounding causes eliminated. First, Chromium's DirectComposition video OVERLAY planes detach/re-attach on every window geometry change and lag the compositor surface during fast scroll — video overlays are now disabled (`--disable-direct-composition-video-overlays`), so video composites into the normal surface and follows every frame atomically (bisect switch: `--no-gpu-video-overlays-fix`). Second, the unpainted-surface color contrasted with the rendered theme (see the theme-adaptive background above); the occlusion tracker fix from the previous white-screen report is retained.
-- **Bleached/white screen over the X window**: Chromium's native-window occlusion tracker (`CalculateNativeWinOcclusion`) misclassified the window during heavy video churn; disabled for X-Now's webview, with the launch background pinned dark (then theme-adaptive at runtime).
-- **Glitching / misplaced UI after View ▸ Zoom**: zoom now uses the webview engine's native `set_zoom` (Rust-tracked level, 100–300%) instead of the `document.body.style.zoom` CSS hack that left fixed-position overlays and composited video layers misplaced.
-- **Stale bundle icon set + stale exe resource**: the Tauri bundle icons were outdated low-res copies (now byte-identical to the HD root set), and `tauri-build` never watched icon files — `build.rs` now emits `rerun-if-changed` for every bundle icon so icon updates always recompile the Windows resource.
-- **Restore-time pause race**: the minimize fast-path probed `is_minimized()` on `Resized` events whose interim sizes also arrive during RESTORE, intermittently pausing right after the resume; the event-driven watchdog now handles every transition.
-- **Residual mount-time black flashes while scrolling**: X's virtualized feed reuses the same `<video>` node across posts and Chromium can report the previous stream's `readyState >= 2` at the swap moment — the mount guard therefore force-re-arms on `loadstart`/`emptied` (bypassing the stale-frame gate) and releases on the new stream's first frame, closing the last black-gap window at recycled-player src swaps.
+- Google and Apple sign-in windows close by themselves after sign-in.
+- Video sound on Windows: X-Now no longer keeps its own audio session muted.
+- Blank Task Manager icon.
+- Black flashes and bleached windows while scrolling; video players stay hidden until their first frame.
 
-### 📦 Release engineering
-- **Release workflow rewritten** (`.github/workflows/release.yml`). One manual run builds one universal installer per platform: Windows x64 (NSIS setup, MSI, portable), macOS universal DMG (Apple Silicon and Intel), Linux x64 (AppImage, DEB, RPM).
-  - Runs on `workflow_dispatch` only. A tag push no longer starts the macOS runner.
-  - Checks first that the tag, `tauri.conf.json`, `package.json`, `Cargo.toml`, `Cargo.lock` and the release notes all agree.
-  - The Tauri CLI is pinned to 2.11.5, matching the `tauri` crate.
-  - Icons are verified byte for byte against `icons/`.
-  - `SHA256SUMS.txt` covers all seven assets, and the draft GitHub Release uses `docs/releases/X-Now_v2.5.0.md` as its body.
-- Release notes for each version live in `docs/releases/`.
-- **Repository layout**: the standalone exes and `checksums.txt` moved to `dist/`; installers are in `dist/installers/` (git-ignored); probe scripts moved to `scripts/diagnostics/`. `run-x-now.bat` launches `dist/X-Now_v2.5.0.exe`.
-- **Live Settings suite** sets Pause video and Mute sound on before its checks, so it no longer depends on the saved settings (172 checks).
+### 📦 Release
+- Seven installers and `SHA256SUMS.txt`. Packages are unsigned.
 
 ---
 

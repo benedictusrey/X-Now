@@ -1,31 +1,24 @@
 # Release Notes: X-Now v2.5.0
 
-X-Now v2.5.0 adds a Settings panel, two controls beside X's logo, and Quiet hours. It also fixes Google and Apple sign-in windows, silent video sound on Windows, and black flashes while scrolling.
+Settings panel, Quiet hours, unmuted videos while X-Now is active, and fixes for sign-in, video sound on Windows, the Task Manager icon and scroll flashes.
 
-Full implementation record: [docs/releases/X-Now_v2.5.0.md](docs/releases/X-Now_v2.5.0.md)
+**Download:** [v2.5.0 release page](https://github.com/benedictusrey/X-Now/releases/tag/v2.5.0). The file list and verification steps are in [docs/releases/X-Now_v2.5.0.md](docs/releases/X-Now_v2.5.0.md). The full technical record is in [docs/releases/X-Now_v2.5.0-record.md](docs/releases/X-Now_v2.5.0-record.md).
 
 ## What's new
 
-- **Settings** opens from the X-Now button beside X's logo, or from the tray. It covers the window (hide to tray, keep on top), the minimized behaviour (pause video, mute, sleep the page), Media volumes, Zoom, Motion, Theme, Focus layout and Quiet hours.
-- **Refresh** beside the logo loads new posts in place, the way X's Home tab does. Playing media and your scroll position survive.
-- **Quiet hours** pause and mute video on a schedule: Nights (23:00 to 07:00) or a custom window.
-- **Unmute videos when X-Now is active** (Settings, on by default): feed and opened videos play with sound while X-Now is in front. Turn it off to keep X's muted default.
-- **Saved media**: the last 50 saves are listed in Settings, each with a Show in folder button.
+- **Settings:** open from the X-Now button beside X's logo or from the tray. Covers the window, minimize, media, Quiet hours, zoom, theme, motion and saved media.
+- **Unmute videos when X-Now is active:** on by default. Turn it off in Settings to keep X's muted default.
+- **Quiet hours:** pause and mute video on a schedule.
+- **Refresh** beside the logo: loads new posts in place.
 
 ## Fixed
 
-- **Google sign-in** works: the sign-in window closes by itself after you sign in and the page lands on X. **Apple** sign-in opens and closes its window correctly.
-- **Video sound** stayed silent in the foreground on Windows, because X-Now's own audio session was left muted. Fixed.
-- **Videos stayed muted after each launch and reload** until you clicked one. The Settings option above fixes it.
-- **Task Manager showed a blank icon** for X-Now. The window now sets its large icon.
-- **Black flashes and bleached windows** while scrolling and during video playback are fixed.
+- Google and Apple sign-in windows close by themselves after sign-in.
+- Video sound on Windows in the foreground.
+- Blank Task Manager icon.
+- Black flashes while scrolling.
 
-## Good to know
-
-- Settings are saved in `settings.json` in the app data folder.
-- The Focus layout setting relies on X's current right-column markup. If X changes it, the setting does nothing until it is updated.
-- The Unmute setting needs the WebView2 autoplay switch that ships with this build. The switch applies to every page in X-Now's WebView, including the sign-in windows.
-- Packages are unsigned. Check downloads against `SHA256SUMS.txt`.
+Packages are unsigned. Windows SmartScreen and macOS Gatekeeper may warn.
 
 ---
 

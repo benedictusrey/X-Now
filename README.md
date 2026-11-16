@@ -86,7 +86,7 @@ X-Now v2.5.0 adds:
 - **Refresh** beside the logo loads new posts in place; playing media and the scroll position survive.
 - **Fixes**: Google and Apple sign-in windows, video sound in the foreground on Windows, the blank Task Manager icon, and black flashes while scrolling.
 
-The full record is in [docs/releases/X-Now_v2.5.0.md](docs/releases/X-Now_v2.5.0.md).
+Downloads and verification steps are in [docs/releases/X-Now_v2.5.0.md](docs/releases/X-Now_v2.5.0.md). The full technical record is in [docs/releases/X-Now_v2.5.0-record.md](docs/releases/X-Now_v2.5.0-record.md).
 
 ## v2.1.0 Highlights
 
@@ -164,7 +164,9 @@ Same X, same account, same feed — but the *wrapper around it* is where the des
 
 ### Use the Release Builds
 
-Release assets are published on the [GitHub Releases](https://github.com/benedictusrey/X-Now/releases) page with verified SHA-256 manifests:
+**Latest: [v2.5.0 download page](https://github.com/benedictusrey/X-Now/releases/tag/v2.5.0).** Windows users want `X-Now_2.5.0_windows_x64-setup.exe`; macOS users want `X-Now_2.5.0_universal.dmg`.
+
+All releases are on the [GitHub Releases](https://github.com/benedictusrey/X-Now/releases) page, each with a `SHA256SUMS.txt` manifest:
 
 | Platform | Installer Packages | Notes |
 |---|---|---|
@@ -313,7 +315,8 @@ The repository checks validate JavaScript syntax, Rust formatting, Rust dependen
 | Document | What you'll find |
 |---|---|
 | [RELEASE_NOTES.md](RELEASE_NOTES.md) | What's new in v2.5.0, with the v2.1.0 notes below |
-| [docs/releases/X-Now_v2.5.0.md](docs/releases/X-Now_v2.5.0.md) | Full v2.5.0 record: sign-in, audio, settings, release workflow, verification |
+| [docs/releases/X-Now_v2.5.0.md](docs/releases/X-Now_v2.5.0.md) | v2.5.0 downloads, what's new and known limits |
+| [docs/releases/X-Now_v2.5.0-record.md](docs/releases/X-Now_v2.5.0-record.md) | Full v2.5.0 record: sign-in, audio, settings, release workflow, verification |
 | [CHANGELOG.md](CHANGELOG.md) | Full version history, one entry per release |
 | [SECURITY.md](SECURITY.md) | Supported versions, security & privacy guarantees |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Welcoming contribution guide, architectural invariants, and Pull Request steps |

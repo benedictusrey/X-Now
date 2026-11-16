@@ -1,6 +1,6 @@
 # X-Now — Build & Rendering-Fix Guide (v2.5.0)
 
-> **Current release: v2.5.0.** The release process has changed (manual dispatch, one universal installer per platform). See [`RELEASE_PIPELINE.md`](RELEASE_PIPELINE.md) and [`releases/X-Now_v2.5.0.md`](releases/X-Now_v2.5.0.md). The rendering-fix content below still applies.
+> **Current release: v2.5.0.** The release process has changed (manual dispatch, one universal installer per platform). See [`RELEASE_PIPELINE.md`](RELEASE_PIPELINE.md) and [`releases/X-Now_v2.5.0-record.md`](releases/X-Now_v2.5.0-record.md). The rendering-fix content below still applies.
 
 > **Read this file before touching `src-tauri/src/lib.rs`, `src-tauri/src/tray.rs`, `frontend/x-tools.js`, or building any installer.**
 > It documents the rendering, window and audio fixes from v2.1.0 to v2.5.0 (bleached screen, black flash bands, scroll flashing, sign-in windows, foreground sound, Task Manager icon, Settings), exactly how each works, how to build, and how to verify nothing regressed.
@@ -129,7 +129,7 @@ After 2.2/2.3/2.5 the user STILL saw occasional shocking flashes while scrolling
 - **Pause and mute on hide.** `window.__onWindowHidden` reads `pauseOnMinimize` and `muteOnMinimize` from `window.__xnowSettings` (both default on). The watchdog syncs `audio::Mode::Hidden` only when `mute_on_minimize` is true; otherwise it syncs `Mode::Visible`.
 - **Settings store (`settings.rs`).** camelCase JSON with `#[serde(default)]`, so older files load with defaults. `apply_patch` validates each value. Writes go to `settings.json.tmp`, then rename over `settings.json`. A corrupt file is kept as `settings.json.bad`. `update_settings` refuses `launchAtLogin`; only the tray changes it.
 - **Task Manager icon (`set_big_window_icon`).** Tao applies `.icon(...)` to the small icon only. The function sends `WM_SETICON` with `ICON_BIG`, loaded from the exe's icon group (resource ID 32512). Check it live: `WM_GETICON` with `ICON_BIG` must not return 0.
-- **Sign-in popups (`classify_new_window`).** Whole-host matching decides between SignIn, MainWindow, External and Allow. Full rules: [`releases/X-Now_v2.5.0.md`](releases/X-Now_v2.5.0.md) §3.2.
+- **Sign-in popups (`classify_new_window`).** Whole-host matching decides between SignIn, MainWindow, External and Allow. Full rules: [`releases/X-Now_v2.5.0-record.md`](releases/X-Now_v2.5.0-record.md) §3.2.
 
 ---
 
