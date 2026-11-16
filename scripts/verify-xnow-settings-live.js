@@ -127,6 +127,11 @@ function killApp() {
     const sliderBy = label => page.locator(`input[type="range"][aria-label="${label}"]`);
     const timeBy = label => page.locator(`input[type="time"][aria-label="${label}"]`);
     const waitSetting = (key, value) => waitFor(() => readSettings()[key] === value);
+    // The saved file decides where each switch starts, so turn it on first.
+    const setOn = async (label, key) => {
+      if (readSettings()[key] !== true) await switchBy(label).click();
+      return waitSetting(key, true);
+    };
     async function setSlider(label, value) {
       await page.evaluate(([label, value]) => {
         const input = document.querySelector(`input[type="range"][aria-label="${label}"]`);
@@ -189,6 +194,7 @@ function killApp() {
       check('media', 'an opened video takes the Opened video volume setting (61%)', Math.abs(volumes.opened - 0.61) < 0.01, volumes);
 
       // Pause and mute follow their switches, whichever path hides the window.
+      check('media', 'Pause video starts on for these checks', await setOn('Pause video', 'pauseOnMinimize'));
       await switchBy('Pause video').click();
       await waitSetting('pauseOnMinimize', false);
       const skipped = await page.evaluate(() => window.__onWindowHidden());
@@ -196,11 +202,13 @@ function killApp() {
       await switchBy('Pause video').click();
       check('media', 'Pause video is back on', await waitSetting('pauseOnMinimize', true));
 
+      check('media', 'Mute sound starts on for these checks', await setOn('Mute sound', 'muteOnMinimize'));
       await switchBy('Mute sound').click();
       await waitSetting('muteOnMinimize', false);
+      // The test video goes first: X-Now mutes the first playing video in the page.
       const mute = await page.evaluate(() => {
         const video = document.createElement('video');
-        document.body.appendChild(video);
+        document.body.prepend(video);
         Object.defineProperty(video, 'paused', { configurable: true, get: () => false });
         video.pause = () => {};
         window.__onWindowHidden();
@@ -330,6 +338,7 @@ function killApp() {
         ['sleepOnMinimize', 'Sleep the page'],
         ['cobaltFallback', "Open Cobalt when a video can't be saved"],
         ['focusLayout', 'Focus layout'],
+        ['unmuteWhenActive', 'Unmute videos when X-Now is active'],
       ];
       for (const [key, label] of SWITCHES) {
         const before = readSettings()[key];

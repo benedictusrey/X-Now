@@ -68,7 +68,9 @@ fn helper_script() -> String {
 ///    video is composited into the normal surface and follows every geometry
 ///    change atomically. Each fix is independently toggleable for bisecting:
 ///    --no-occlusion-fix / --no-gpu-video-overlays-fix.
-const DEFAULT_WEBVIEW_BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,CalculateNativeWinOcclusion --disable-direct-composition-video-overlays";
+/// --autoplay-policy lets "Unmute videos when X-Now is active" play with sound right
+/// after launch. The page still decides the mute state; this only lifts the autoplay block.
+const DEFAULT_WEBVIEW_BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,CalculateNativeWinOcclusion --disable-direct-composition-video-overlays --autoplay-policy=no-user-gesture-required";
 
 /// Guards the playback watchdog so it is spawned exactly once per process,
 /// no matter how many times the X window is (re)launched.
@@ -569,6 +571,34 @@ fn set_page_sleep(w: &tauri::WebviewWindow, sleeping: bool) {
     let _ = w.with_webview(move |webview| webview_sleep::set_sleeping(&webview, sleeping));
 }
 
+/// Sets the large window icon. `.icon(...)` sets only the small one, so Task Manager
+/// found no big icon and showed a blank tile. Uses the exe's own icon group (ID 32512).
+#[cfg(windows)]
+fn set_big_window_icon(window: &tauri::WebviewWindow) {
+    use windows::core::PCWSTR;
+    use windows::Win32::Foundation::{HINSTANCE, LPARAM, WPARAM};
+    use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+    use windows::Win32::UI::WindowsAndMessaging::{LoadIconW, SendMessageW, ICON_BIG, WM_SETICON};
+
+    let Ok(hwnd) = window.hwnd() else {
+        return;
+    };
+    unsafe {
+        let Ok(module) = GetModuleHandleW(PCWSTR::null()) else {
+            return;
+        };
+        let Ok(icon) = LoadIconW(Some(HINSTANCE(module.0)), PCWSTR(32512 as *const u16)) else {
+            return;
+        };
+        SendMessageW(
+            hwnd,
+            WM_SETICON,
+            Some(WPARAM(ICON_BIG as usize)),
+            Some(LPARAM(icon.0 as isize)),
+        );
+    }
+}
+
 /// Resume playback when the window becomes visible again.
 fn resume_media_for_visible(w: &tauri::WebviewWindow) {
     // Wake the page first, so the resume script runs in a live renderer.
@@ -988,6 +1018,8 @@ pub fn launch_x_internal(app: &AppHandle, start_minimized: bool) -> Result<(), S
     if initial.always_on_top {
         let _ = window.set_always_on_top(true);
     }
+    #[cfg(windows)]
+    set_big_window_icon(&window);
 
     if !start_minimized {
         window.show().map_err(|error| error.to_string())?;
@@ -1523,6 +1555,11 @@ mod tests {
     }
 
     // ── compose_webview_browser_args ─────────────────────────────────
+
+    #[test]
+    fn default_args_allow_unmuted_autoplay() {
+        assert!(DEFAULT_WEBVIEW_BROWSER_ARGS.contains("--autoplay-policy=no-user-gesture-required"));
+    }
 
     #[test]
     fn compose_keeps_stock_when_no_override() {

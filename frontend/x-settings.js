@@ -776,6 +776,7 @@
       section("Media", "speaker", [
         row("Feed video volume", "For videos in your feed.", rangeControl("feedVolume", 0, 100, "Feed video volume", "%"), true),
         row("Opened video volume", "For a video opened on its own.", rangeControl("standaloneVolume", 0, 100, "Opened video volume", "%"), true),
+        row("Unmute videos when X-Now is active", "Feed and opened videos play with sound while X-Now is in front.", switchControl("unmuteWhenActive", "Unmute videos when X-Now is active")),
         row("Open Cobalt when a video can't be saved", "Copies the post link and opens Cobalt to save it.", switchControl("cobaltFallback", "Open Cobalt when a video can't be saved")),
       ]),
       section("Saved media", "folder", [savedList()]),

@@ -20,7 +20,8 @@ The security, privacy, and integrity of **X-Now** and its users are top prioriti
 
 - **No analytics, no tracking, no remote database.** X-Now does not collect, transmit, or store any of your X activity. There is no telemetry, no ad SDK, and no account database.
 - **Your session stays local.** The signed-in session lives in WebView2's on-disk profile on *your* computer. X-Now has no profile manager and never sees your password — you sign in through X's own official page inside the app.
-- **Minimal native bridge.** The app exposes only a handful of narrow capabilities: opening safe external HTTP(S) URLs in the default browser, preparing the download folder, saving media bytes, and downloading a media URL that X itself has already exposed. Every command validates its input.
+- **Minimal native bridge.** The app exposes only a handful of narrow capabilities: opening safe external HTTP(S) URLs in the default browser, preparing the download folder, saving media bytes, downloading a media URL that X itself has already exposed, reading and changing X-Now's settings (validated values only), and opening the folder of a file X-Now saved. Every command validates its input.
+- **Local settings only.** `settings.json` in `%APPDATA%\com.xnow.desktop` holds preferences and the paths of the last 50 saved files. It is never uploaded.
 - **External links are routed safely.** Only `http`/`https` URLs (with no CR/LF injection) are ever opened externally; everything else stays in-app or is denied.
 ## Capabilities & the remote page
 
@@ -37,7 +38,7 @@ Media saving is opt-in and local. Downloads go only to `Downloads\X-Now` (or you
 ## 🧪 Security-Conscious Development
 
 - Rust + Tauri v2 with a minimal dependency set; the only Windows-specific dependency is target-gated and used solely for the audio-session mute guarantee.
-- Repository checks validate JavaScript syntax, Rust formatting, dependency compilation, and package generation.
+- Repository checks cover Rust formatting and unit tests, the JavaScript contract and UI harnesses (`npm run test:all`), and the live Settings suite (`npm run test:live`, Windows).
 - Release builds are built through GitHub Actions (`.github/workflows/release.yml`) and published through GitHub Releases. Each release artifact ships native installers with verified SHA-256 (`SHA256SUMS.txt`) manifests.
 
 ## Release authenticity

@@ -10,6 +10,7 @@ All notable changes to **X-Now** are documented here. The format follows [Keep a
 - **Rail controls beside the X logo**: an X-Now button opens the new Settings panel, and a Refresh button loads new posts in place. Refresh uses X's own "Show N posts" pill and Home tab, so playing media and the scroll position survive; it falls back to a full reload only if X's Home link is missing.
 - **Settings panel** (opens from the X-Now button or the tray): a sheet that slides out from the rail with Window, Minimized, Quiet hours, Media, Saved media and Display sections. Every value is saved to `settings.json` in the app data folder.
 - **Quiet hours**: Off, Nights (23:00 to 07:00), or a custom window. While active, the page pauses and mutes video and blocks autoplay.
+- **Unmute videos when X-Now is active** (Settings, on by default): feed and opened videos play with sound while X-Now is the focused window. Each source is unmuted once, so a mute you set yourself stays until the next video.
 - **Saved media history**: the last 50 saves, each with a Show in folder button.
 - **Focus layout**: hides trends and promo cards in X's right column, where the column matches X's current layout.
 - **Tray Settings submenu**: every setting above, with checkmarks that stay in step with the panel, plus Quiet hours, Refresh feed and Open saved media folder.
@@ -24,6 +25,7 @@ All notable changes to **X-Now** are documented here. The format follows [Keep a
 - **Volumes**: the feed and opened-video volumes are settings (defaults unchanged: 20% and 50%).
 - **Zoom** is stored in settings, so it survives a restart.
 - **Theme-adaptive native background (scroll-flash fix)**: X resolves its theme asynchronously, so the page now reports its real background color (`XNOWBG:r,g,b`) and the app re-syncs the native WebView2 background at runtime (`Native background synced to page theme: #…` in the log). Unpainted compositor gaps — scroll raster tiles, restore frames — now fill with the SAME color as the surrounding content instead of flashing as a contrasting dark-on-light (or light-on-dark) band.
+- **WebView2 autoplay policy**: X-Now's WebView allows autoplay with sound (`--autoplay-policy=no-user-gesture-required`), so the Settings option above works right after launch. It applies to every page in the WebView, including the sign-in windows.
 - **Idle-aware timers (battery/CPU)**: the page's route/handle poll adapts to usage (1 s active → 5 s idle → 15 s deep-idle → 30 s hidden, instantly re-armed by input/visibility), and the Rust playback watchdog is event-driven — window events wake it instantly; its fallback poll dropped from 800 ms to 5 s (~6× fewer OS wakeups; hundreds saved per hour while hidden in the tray).
 
 ### 🔧 Fixed
@@ -34,6 +36,8 @@ All notable changes to **X-Now** are documented here. The format follows [Keep a
   - A sign-in after a sign-out closes its sign-in window once the sign-in completes.
   - Host matching is exact. Ordinary links such as `pineapple.com` or `/author/` paths open in the browser, not in a sign-in window.
   - A sign-in window that fails to build, and an OS-browser open that fails, are now written to the app log.
+- **Task Manager icon was blank**: the window had no large icon, so the app row showed an empty tile. The window now sets its large icon from the app's own icon.
+- **Feed videos muted after every launch and reload**: the "unlocked" state lived only in memory, so each launch or reload muted feed videos until a click. The Settings option above removes that wait.
 - **Video sound silent in the foreground (Windows)**: X-Now's own audio session stayed muted in the Volume Mixer while its window was visible. The mute logic was rewritten: a visible window clears mutes X-Now did not set, and the `audio-muted.flag` marker clears a mute left behind by a crash.
 - **About card stayed open after toggling off**: its Escape listener leaked and moved focus on every later keypress.
 - **Context menu**: arrow keys and Home/End now move between items, and focus starts on the first one.
@@ -54,6 +58,8 @@ All notable changes to **X-Now** are documented here. The format follows [Keep a
   - Icons are verified byte for byte against `icons/`.
   - `SHA256SUMS.txt` covers all seven assets, and the draft GitHub Release uses `docs/releases/X-Now_v2.5.0.md` as its body.
 - Release notes for each version live in `docs/releases/`.
+- **Repository layout**: the standalone exes and `checksums.txt` moved to `dist/`; installers are in `dist/installers/` (git-ignored); probe scripts moved to `scripts/diagnostics/`. `run-x-now.bat` launches `dist/X-Now_v2.5.0.exe`.
+- **Live Settings suite** sets Pause video and Mute sound on before its checks, so it no longer depends on the saved settings (172 checks).
 
 ---
 

@@ -29,7 +29,7 @@ const DEFAULTS = {
   closeToTray: true, alwaysOnTop: false, pauseOnMinimize: true, muteOnMinimize: true,
   sleepOnMinimize: true, feedVolume: 20, standaloneVolume: 50, cobaltFallback: true,
   zoomPercent: 100, motion: 'system', quietMode: 'off', quietStart: 1380, quietEnd: 420,
-  focusLayout: false, history: [], launchAtLogin: false, theme: 'match'
+  focusLayout: false, unmuteWhenActive: true, history: [], launchAtLogin: false, theme: 'match'
 };
 
 // X's left panel in the centred 1920 layout: the logo sits above the nav, and the
@@ -219,6 +219,8 @@ async function main() {
   focus.click();
   await tick(20);
   assert(document.documentElement.classList.contains('xnow-focus-layout'), 'Focus layout toggles the page class');
+  const unmute = document.querySelector('[aria-label="Unmute videos when X-Now is active"]');
+  assert(unmute && unmute.getAttribute('aria-checked') === 'true', 'Unmute videos when X-Now is active is on by default');
   window.__xnowCloseSettings();
 
   // ── Quiet hours: the custom window appears only for Custom, and saves times ─

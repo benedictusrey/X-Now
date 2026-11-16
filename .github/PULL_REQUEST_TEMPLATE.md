@@ -25,8 +25,9 @@
 Before submitting your Pull Request, please confirm the following:
 
 - [ ] Code strictly follows existing project architectural rules (`CONTRIBUTING.md` & `docs/BUILD_AND_FIXES.md`).
-- [ ] `cd src-tauri && cargo test --lib` passes with all 22 tests green.
-- [ ] `node scripts/verify-xnow-helpers.js` passes with all 88 assertions green.
+- [ ] `cd src-tauri && cargo test --lib` passes with every test green.
+- [ ] `node scripts/verify-xnow-helpers.js` passes with all 94 assertions green.
+- [ ] `node scripts/verify-xnow-ui.js` passes with all 80 assertions green.
 - [ ] `cd src-tauri && cargo fmt --all -- --check` passes cleanly.
 - [ ] `cd src-tauri && cargo check` reports no new warnings or errors.
 - [ ] Windows audio dependencies remain target-gated under `[target.'cfg(windows)'.dependencies]`.

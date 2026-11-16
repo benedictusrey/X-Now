@@ -22,7 +22,7 @@ Thumbs.db
 .DS_Store
 
 # Installers are build products — binaries ship via GitHub Releases.
-/installers/
+/dist/installers/
 
 # Freebuff agent workspace (local tooling, never committed)
 /.freebuff/

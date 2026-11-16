@@ -64,6 +64,8 @@ pub struct Settings {
     pub quiet_start: u16,
     pub quiet_end: u16,
     pub focus_layout: bool,
+    /// Unmute feed and opened videos while X-Now is the focused, visible window.
+    pub unmute_when_active: bool,
     pub history: Vec<SavedItem>,
 }
 
@@ -84,6 +86,7 @@ impl Default for Settings {
             quiet_start: 23 * 60,
             quiet_end: 7 * 60,
             focus_layout: false,
+            unmute_when_active: true,
             history: Vec::new(),
         }
     }
@@ -116,6 +119,7 @@ pub fn apply_patch(current: &Settings, patch: &Map<String, Value>) -> Result<Set
             "sleepOnMinimize" => next.sleep_on_minimize = want_bool(key, value)?,
             "cobaltFallback" => next.cobalt_fallback = want_bool(key, value)?,
             "focusLayout" => next.focus_layout = want_bool(key, value)?,
+            "unmuteWhenActive" => next.unmute_when_active = want_bool(key, value)?,
             "feedVolume" => next.feed_volume = want_int(key, value, 0, 100)? as u8,
             "standaloneVolume" => next.standalone_volume = want_int(key, value, 0, 100)? as u8,
             "zoomPercent" => next.zoom_percent = want_int(key, value, 50, 300)? as u16,
@@ -276,6 +280,7 @@ mod tests {
         assert_eq!((s.feed_volume, s.standalone_volume), (20, 50));
         assert_eq!(s.zoom_percent, 100);
         assert_eq!(s.quiet_mode, QuietMode::Off);
+        assert!(s.unmute_when_active);
     }
 
     #[test]
@@ -290,11 +295,13 @@ mod tests {
                 "quietMode": "custom",
                 "quietStart": 1320,
                 "quietEnd": 360,
-                "focusLayout": true
+                "focusLayout": true,
+                "unmuteWhenActive": false
             })),
         )
         .unwrap();
         assert!(next.always_on_top && next.focus_layout);
+        assert!(!next.unmute_when_active);
         assert_eq!((next.feed_volume, next.zoom_percent), (35, 150));
         assert_eq!(next.motion, Motion::Reduce);
         assert_eq!(next.quiet_mode, QuietMode::Custom);

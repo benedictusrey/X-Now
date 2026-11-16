@@ -25,7 +25,7 @@ The release also rewrites the release workflow so that one manual run produces o
   - **Window:** hide to tray on close, keep on top.
   - **Minimized:** pause video, mute, sleep the page.
   - **Quiet hours:** Off, Nights (23:00–07:00), or a custom window.
-  - **Media:** feed and opened-video volumes (defaults unchanged: 20% and 50%), saved-media history.
+  - **Media:** feed and opened-video volumes (defaults unchanged: 20% and 50%), "Unmute videos when X-Now is active" (on by default), saved-media history.
   - **Display:** zoom (stored, so it survives restarts), Motion (System, Reduce, Full), Focus layout, and the theme (Light or Dark, switched through X's own Display page without reloading X-Now).
   - Every value is saved to `settings.json` in the app data folder.
 - **Refresh** beside the logo loads new posts in place, using X's own "Show N posts" pill and Home tab. Playing media and the scroll position survive. It falls back to a full reload only if X's Home link is missing.
@@ -118,7 +118,20 @@ The stale-window timer from the previous version was removed.
 
 - Unit tests in `audio.rs` cover the decision table: hidden mutes audible sessions and keeps muted ones; the first visible sync after hiding clears every mute; a new muted session is cleared while visible; a mute set while visible is respected; release lifts only X-Now's mutes.
 - Live test on Windows in an earlier round: the reproduced mute was cleared on restore, and the log line `Audio session found: muted=…` was checked at startup.
-- Not changed: X's own video mute. Feed videos still start muted under X's autoplay rule; the user unmutes them with X's speaker icon.
+- Feed videos still follow X's muted-autoplay rule until a click, unless the Settings option in 4.4 is on.
+
+### 4.4 Unmute when X-Now is active (Settings)
+
+- **Cause.** `frontend/x-tools.js` forced feed videos to `muted` until a click on a video. That "unlocked" state lived only in memory, so every launch, Refresh and reload started locked, and the first video stayed silent until its speaker was clicked.
+- **Fix.** Settings › Media › "Unmute videos when X-Now is active", on by default. While X-Now is the focused, visible window, a feed or opened video that starts playing is unmuted once per source. A mute you set yourself stays until the source changes. Turn the setting off to keep X's muted default.
+- **Autoplay switch.** Chromium blocks unmuted autoplay until a user gesture. X-Now's WebView2 now passes `--autoplay-policy=no-user-gesture-required`, so the option works right after launch. The switch applies to every page in X-Now's WebView, including the Google and Apple sign-in windows.
+- **Live check (built exe, logged-in X feed, no clicks).** With the setting on, a feed video was playing with `muted=false` and the window focused, both right after launch and after a reload. With the setting off and a reload, the same video was `muted=true`, and no foreground unmute had run. At startup the app's own Windows audio session read `muted=no` while in front.
+
+### 4.5 Window icon (Task Manager)
+
+- **Cause.** Tao applies the window icon passed to `.icon(...)` to the small icon only. Live, `WM_GETICON` for the big icon returned 0, and the class icon was also 0. Task Manager's app row therefore had no icon and showed a blank tile.
+- **Fix.** `set_big_window_icon` in `src-tauri/src/lib.rs` sends `WM_SETICON` with `ICON_BIG`, using the exe's own icon group (ID 32512, from `icons/icon.ico`).
+- **Verification.** Live, the big icon went from 0 to a valid handle on the new build. The Task Manager row is still to be confirmed by eye on the maintainer's machine.
 
 ---
 
@@ -168,7 +181,7 @@ These shipped in v2.5.0 because they are new since v2.1.0.
 | About card | `frontend/x-about.js` | Status tiles, feature grid, focus trap |
 | ACL | `src-tauri/capabilities/remote.json`, `src-tauri/build.rs` | Exactly seven commands for `https://x.com/*`: `download_media`, `save_media_bytes`, `open_external_url`, `prepare_download_folder`, `get_settings`, `update_settings`, `open_saved_folder` |
 | Release workflow | `.github/workflows/release.yml` | Rewritten (see §8) |
-| Tests | `scripts/verify-xnow-helpers.js`, `scripts/verify-xnow-ui.js`, `scripts/verify-xnow-settings-live.js` | Contract harness (88), UI harness (79), live settings suite |
+| Tests | `scripts/verify-xnow-helpers.js`, `scripts/verify-xnow-ui.js`, `scripts/verify-xnow-settings-live.js` | Contract harness (94), UI harness (80), live settings suite (172) |
 
 ---
 
@@ -191,7 +204,8 @@ These shipped in v2.5.0 because they are new since v2.1.0.
   | Linux x64 | `X-Now_2.5.0_x86_64.rpm` | Fedora, RHEL, openSUSE |
   | All | `SHA256SUMS.txt` | Checksums for all seven files, verified before publishing |
 
-- **Draft release.** The release is created as a draft with these notes as its body. Publishing is a manual step.
+- **Draft release.** The release is created as a draft with these notes as its body. Publishing is a manual step, and publishing creates the tag `v2.5.0` on the commit `main` points to.
+- **Repository layout.** Standalone exes and `checksums.txt` live in `dist/`. Installers in `dist/installers/` are git-ignored. Probe scripts live in `scripts/diagnostics/`. `run-x-now.bat` starts `dist/X-Now_v2.5.0.exe`.
 - **Not included:** Windows ARM64 and unsigned-package signing. Code signing and notarization are not configured.
 
 ---
@@ -214,13 +228,14 @@ Do not type credentials into anything except X's own page inside X-Now.
 |---|---|
 | `cargo fmt --all -- --check` | Clean |
 | `cargo check` / `cargo build --release` | Pass |
-| `cargo test --lib` | 40 passed, 0 failed |
-| `node scripts/verify-xnow-helpers.js` | 88 passed, 0 failed |
-| `node scripts/verify-xnow-ui.js` | 79 passed, 0 failed |
+| `cargo test --lib` | 41 passed, 0 failed |
+| `node scripts/verify-xnow-helpers.js` | 94 passed, 0 failed |
+| `node scripts/verify-xnow-ui.js` | 80 passed, 0 failed |
 | Icon byte-identity (`icons/` vs `src-tauri/icons/`) | Identical (6 of 6) |
 | Version alignment (tauri.conf.json, package.json, Cargo.toml, Cargo.lock) | 2.5.0 |
 | Live sign-in probes | Passed on the final build (§3.3) |
-| Live settings suite (`scripts/verify-xnow-settings-live.js`) | Last full run: 163 checks, 0 failed, in an earlier round. Not re-run for this release. |
+| Live unmute probe (§4.4) and window icon handle (§4.5) | Run on the built exe: video unmuted with the setting on (launch and reload), muted with it off; big icon handle 0 before the fix, set after |
+| Live settings suite (`scripts/verify-xnow-settings-live.js`) | 172 checks, 0 failed on the local release build, with the Mute sound and Pause video switches starting both on and off. The earlier Mute sound failures were a test-setup error, not an app bug. |
 | `actionlint` on `release.yml` | Not run (tool not installed). Structure checked with a YAML parser. |
 | Windows installers built with `tauri build` | Built locally; SHA-256 below |
 | macOS DMG and Linux bundles | Built by the release workflow only; not run locally |
@@ -231,11 +246,11 @@ These hashes are for local builds on the maintainer's machine, not for the relea
 
 | File (local build) | SHA-256 |
 |---|---|
-| `X-Now_v2.5.0.exe` (standalone, repo root) | `9611d023415411fa78f6cabeb73a1d5bf1f402ba8930fcfd8e074a777a83a37b` |
-| `installers/X-Now_2.5.0_x64-setup.exe` | `281198051ba8aeada89759afe10af54009ef45ae657890fdf3b81bc0e7a5b0fe` |
-| `installers/X-Now_2.5.0_x64_en-US.msi` | `8d7f8edc2ae9f6cb6cd6ed5aa052b5169f88da2c45ff3c23e25433fce304724b` |
+| `dist/X-Now_v2.5.0.exe` (standalone) | `5e5bece385b1e282c7a5f801b43e6fa8099947c4f3cb5ef9a82dcfc2b57273d2` |
+| `dist/installers/X-Now_2.5.0_x64-setup.exe` | `970efa4ac04f8e1c8c83a34e088794fe61d1c4384ecfb8c325d1792dcea92226` |
+| `dist/installers/X-Now_2.5.0_x64_en-US.msi` | `f02af0d5f3f605d0e36e53d36abb52ee9515511f7800ffc797a160491b9b192d` |
 
-These are recorded in `checksums.txt`, which `sha256sum -c` verifies.
+These are recorded in `dist/checksums.txt`. Run `sha256sum -c checksums.txt` from the `dist/` folder.
 
 ---
 
@@ -249,6 +264,7 @@ These are recorded in `checksums.txt`, which `sha256sum -c` verifies.
 - **Deprecated `tauri_plugin_shell::Shell::open`** is used for opening links (five build warnings). Replacing it is a dependency change, left for a separate release.
 - **Unsigned packages.** Windows SmartScreen and macOS Gatekeeper can warn. Verify the downloads against `SHA256SUMS.txt`.
 - **Sign-in test coverage.** The jsdom harness does not cover the 5-second sign-out report; the live probe does.
+- **Autoplay switch scope.** `--autoplay-policy=no-user-gesture-required` applies to every page in X-Now's WebView, including the sign-in windows. A `XNOW_WEBVIEW_ARGS` override replaces the defaults, so it must include the switch to match the shipped build.
 
 ---
 

@@ -91,12 +91,16 @@ X-Now/
 │   ├── Cargo.toml          # Rust package manifest (target-gated Windows dependencies)
 │   └── tauri.conf.json     # Tauri configuration
 ├── icons/                  # Source of truth master icons (ICO, PNG, ICNS, tray, menu)
+├── dist/                   # Release builds: standalone exes, checksums.txt, installers/ (git-ignored)
 ├── scripts/
-│   ├── verify-xnow-helpers.js      # jsdom contract harness (88 assertions)
-│   ├── verify-xnow-ui.js           # jsdom UI harness (79 assertions)
-│   ├── verify-xnow-settings-live.js # live Settings and media checks over CDP
-│   ├── xnow-flash-smoke-test.js    # Playwright/CDP scroll-flash measurement
-│   └── xnow-screencast-flash-test.js # Per-frame CDP screencast analysis
+│   ├── verify-xnow-helpers.js        # jsdom contract harness (94 assertions)
+│   ├── verify-xnow-ui.js             # jsdom UI harness (80 assertions)
+│   ├── verify-xnow-settings-live.js  # live Settings and media suite over CDP (172 checks, Windows)
+│   ├── xnow-flash-smoke-test.js      # Playwright/CDP scroll-flash measurement
+│   ├── xnow-screencast-flash-test.js # Per-frame CDP screencast analysis
+│   ├── tile-flip-diff.js             # Two-frame tile-flip diff used by the flash analysis
+│   ├── render-menu-icons.ps1         # Renders the tray-menu glyphs into icons/menu
+│   └── diagnostics/                  # One-off probes and analysis helpers
 ├── docs/
 │   ├── BUILD_AND_FIXES.md          # Technical reference for all rendering fixes
 │   ├── RELEASE_PIPELINE.md         # GitHub Actions multi-platform release guide
@@ -156,17 +160,17 @@ cargo build --release
 
 Every Pull Request must pass our complete verification chain before merging:
 
-1. **Rust Unit Tests (40 Tests)**
+1. **Rust Unit Tests (41 Tests)**
    ```bash
    cd src-tauri && cargo test --lib
    ```
-   Covers launch configuration parsing, CSS color parsing, argument precedence, and feature toggles.
-2. **JavaScript Contract Harness (88 Assertions)**
+   Covers launch configuration parsing, CSS color parsing, argument precedence, feature toggles, Settings validation, and the audio-session mute decisions.
+2. **JavaScript and UI Harnesses (94 + 80 Assertions) and Live Settings Suite (172 Checks)**
    ```bash
-   npm run test:all
-   # Or: node scripts/verify-xnow-helpers.js
+   npm run test:all            # Rust tests, contract harness (94), UI harness (80)
+   npm run test:live           # Windows only: drives the built exe; closes X-Now and restores settings.json
    ```
-   Validates page-side contracts: pause/resume idempotency, media candidate resolution, video mount guard behaviors, and theme reporting strings.
+   Validates page-side contracts: pause/resume idempotency, media candidate resolution, video mount guard behaviors, theme reporting strings, and the Settings sheet.
 3. **Rust Code Formatting & Linter**
    ```bash
    cd src-tauri
@@ -176,6 +180,7 @@ Every Pull Request must pass our complete verification chain before merging:
 4. **Manual Functional Smoke Test**
    - Launch the application and sign in to X.
    - Verify video autoplay in the feed, and confirm video pauses when scrolled out of view.
+   - Open Settings (the X-Now button beside the logo), change Mute sound, restart X-Now: the value must persist.
    - Minimize window with media playing: audio must pause instantly; restore: media resumes.
    - Close window (✕): app minimizes to tray; tray icon click restores window.
    - Right-click image: saves full-resolution image to `Downloads\X-Now` with a bottom-right toast.

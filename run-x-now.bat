@@ -1,3 +1,3 @@
 @echo off
 title X-Now Desktop
-start "" "%~dp0X-Now_v2.1.0.exe"
+start "" "%~dp0dist\X-Now_v2.5.0.exe"

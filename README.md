@@ -11,12 +11,12 @@
 
 <p align="center">
   <strong>🚀 X-NOW v2.5.0</strong><br/>
-  <em>Settings panel, Quiet hours, Refresh beside the logo, and Google &amp; Apple sign-in that closes itself after login.</em>
+  <em>Settings panel, Quiet hours, unmuted videos while X-Now is active, Refresh beside the logo, and Google &amp; Apple sign-in that closes itself after login.</em>
 </p>
 
 <p align="center">
   <strong>v2.5.0 highlights</strong><br/>
-  <em>Settings · Refresh · Quiet hours · saved-media history · universal installers for Windows, macOS and Linux</em>
+  <em>Settings · Refresh · Quiet hours · saved-media history · installers for Windows, macOS and Linux</em>
 </p>
 
 <p align="center">
@@ -42,8 +42,9 @@
 | | |
 |---|---|
 | 🪟 **Close-to-tray** | The ✕ button hides the app to the tray — media pauses instantly, one click brings it back |
-| 🔇 **Guaranteed pause on minimize** | Page pause + OS-level audio-session mute + a Rust watchdog: no background audio, ever |
+| 🔇 **Pause and mute on minimize** | Video pauses and sound mutes while hidden (both switchable in Settings), backed by a Rust watchdog and the Windows audio-session mute |
 | 🖱️ **Tray command center** | Feed shortcuts, zoom, always-on-top, memory compaction, launch-on-startup |
+| ⚙️ **Settings panel** | One sheet beside the logo or in the tray: window, minimize, media volume, unmute-when-active, Quiet hours, zoom, theme, motion, saved media |
 | 💾 **One-click media saving** | Right-click images (full resolution) and videos — straight to `Downloads\X-Now` |
 | 🔗 **Links go where they belong** | One click on any outside link → your default browser opens it |
 | 🔐 **Seamless in-app login** | Google & Apple sign-in popups handled inside the app, auto-closed after login |
@@ -77,7 +78,15 @@ Why open a browser tab when you can command everything from your taskbar? X-Now 
 
 ## v2.5.0 Highlights
 
-X-Now v2.5.0 adds a Settings panel (opened from the X-Now button beside X's logo, or from the tray), Refresh beside the logo, Quiet hours, and a saved-media history. Google sign-in now closes its window by itself and lands on X, and Apple's window opens and closes correctly. Video sound in the foreground on Windows is fixed, and so are the black flashes while scrolling. The full record is in [docs/releases/X-Now_v2.5.0.md](docs/releases/X-Now_v2.5.0.md).
+X-Now v2.5.0 adds:
+
+- **Settings panel**, opened from the X-Now button beside X's logo or from the tray. It covers window (hide to tray, keep on top), minimize (pause video, mute sound, sleep the page), Quiet hours, media volumes, saved media, zoom, theme, motion and focus layout. Every value is saved to `settings.json`.
+- **Unmute videos when X-Now is active** (on by default): feed and opened videos play with sound while X-Now is the focused window. Turn it off to keep X's muted default.
+- **Quiet hours**: pause and mute video on a schedule (Nights, 23:00 to 07:00, or a custom window).
+- **Refresh** beside the logo loads new posts in place; playing media and the scroll position survive.
+- **Fixes**: Google and Apple sign-in windows, video sound in the foreground on Windows, the blank Task Manager icon, and black flashes while scrolling.
+
+The full record is in [docs/releases/X-Now_v2.5.0.md](docs/releases/X-Now_v2.5.0.md).
 
 ## v2.1.0 Highlights
 
@@ -131,11 +140,11 @@ X-Now v2.1.0 brings a major leap forward in rendering stability, compositor smoo
 
 Same X, same account, same feed — but the *wrapper around it* is where the desktop magic lives. X-Now keeps the official X experience and adds the OS integration a browser tab can't offer:
 
-| Capability | ✕ X-Now v2.1.0 | 🌐 X Web (browser tab) |
+| Capability | ✕ X-Now v2.5.0 | 🌐 X Web (browser tab) |
 |---|---|---|
 | **Window & tray presence** | Dedicated native window + system-tray icon with feed shortcuts | One tab among dozens, no app identity |
 | **Close button** | Closes to the tray — app keeps running, media pauses instantly | Closes the tab and the whole browser stays heavy |
-| **Minimize** | Video audio stops the moment the window hides (page + OS audio-session mute, double-guaranteed) | Tab keeps playing audio in the background |
+| **Minimize** | Video pauses and sound mutes the moment the window hides (page pause + Windows audio-session mute; both switchable in Settings) | Tab keeps playing audio in the background |
 | **Launch on startup** | Optional — starts hidden to the tray, ready when you are | Must re-open the browser and the tab |
 | **Saving images** | Right-click image → saved at **full resolution** to `Downloads\X-Now` in one action, with a bottom-right "Saved ✓" toast | Browser right-click menu — often blocked by the site |
 | **Saving videos** | Right-click video → **the clicked post's video** downloads directly as MP4 when X exposes it; otherwise the post link is copied and [Cobalt](https://cobalt.tools/) opens with `Downloads\X-Now` pre-created — never a wrong video | Manual copy/paste between tabs |
@@ -144,6 +153,7 @@ Same X, same account, same feed — but the *wrapper around it* is where the des
 | **Titlebar** | Shows `X-Now (@yourhandle)` once signed in | Browser tab title only |
 | **About & identity** | In-app About card with the X-Now icon and the author's credit — no window hop | No equivalent |
 | **Always on top** | One tray toggle pins the window above everything | Not possible |
+| **Desktop settings** | Settings sheet: window, minimize, media, Quiet hours, zoom, theme, motion, saved media | Browser settings only |
 | **Memory footprint** | One lean WebView2 process (≈7 MB binary, no Electron) | A full browser engine + every extension |
 
 > **Bottom line:** X-Now is not a different X — it is the *desktop experience* X should have had. Same content, same login, zero learning curve; every superpower lives outside the page, where the browser can't reach.
@@ -192,9 +202,9 @@ The login session is stored by the WebView2 application data folder on the local
 
 | Context | Default audio | Behaviour |
 |---|---:|---|
-| Feed videos (timeline, autoplaying) | Muted, following X's own rule | Autoplay when 50% visible; pause instantly when scrolled out of view — one video at a time |
-| Lightbox / standalone video page | 50% after your first interaction | Unmuted once you click into the media; X's own mute and fullscreen controls stay the authority |
-| Minimize / close-to-tray | — | Every video and audio element pauses instantly; Windows also mutes the app's OS audio sessions as a hard guarantee |
+| Feed videos (timeline, autoplaying) | 20%; unmuted while X-Now is focused (*Unmute videos when X-Now is active*, on by default), otherwise X's muted rule | Autoplay when 50% visible; pause instantly when scrolled out of view — one video at a time |
+| Lightbox / standalone video page | 50% (*Opened video volume*) | X-Now does not force a mute; X's own mute and fullscreen controls stay the authority |
+| Minimize / close-to-tray | — | *Pause video* (on by default) pauses every video and audio element. *Mute sound* (on by default) mutes the video and, on Windows, the app's audio sessions |
 | Restore | — | Playback resumes only for media that is still on screen — exactly what X's engine would autoplay anyway |
 
 X-Now never adds duplicate player chrome: play, mute, fullscreen, captions and quality stay X's own controls.
@@ -226,6 +236,8 @@ Right-click any video and choose **Save video**. X-Now always targets the **clic
 
 The same hand-off is one tray click away: **Open Cobalt video downloader**.
 
+**Saved media:** Settings lists the last 50 saves, each with **Show in folder**.
+
 > X-Now downloads X's own CDN URLs exactly as the page exposes them — it does not bypass X access controls, and media rights belong to the post's author.
 
 ### Default Browser
@@ -249,12 +261,14 @@ The same hand-off is one tray click away: **Open Cobalt video downloader**.
 Install [Node.js](https://nodejs.org/), [Rust](https://rustup.rs/), and the [Tauri 2 CLI](https://tauri.app/start/), then run the checks from the repository root:
 
 ```sh
-node --check frontend/x-tools.js
+npm install                 # once: jsdom and playwright-core for the test harnesses
+npm run test:all            # cargo test --lib, verify-xnow-helpers.js (94), verify-xnow-ui.js (80)
 
 cd src-tauri
 cargo fmt --all -- --check
 cargo check
-npx --yes @tauri-apps/cli@2 build --ci
+cd ..
+npx --yes @tauri-apps/cli@2.11.5 build --bundles nsis,msi   # --no-bundle for the exe only
 ```
 
 To keep build products outside the source tree on Windows:
@@ -268,7 +282,7 @@ npx --yes @tauri-apps/cli@2 build --ci --no-sign
 
 ## Privacy & Security Notes
 
-X-Now does not add analytics or a remote account database. X page traffic is handled by X's service natively inside WebView2/WebKit. The local session data stays on the local computer. The native bridge exposes only the narrow actions required for: opening safe external URLs, saving media bytes, preparing the download folder, and downloading a media URL that X has already exposed.
+X-Now does not add analytics or a remote account database. X page traffic is handled by X's service natively inside WebView2/WebKit. The local session data stays on the local computer. The native bridge exposes only the narrow actions required for: opening safe external URLs, saving media bytes, preparing the download folder, downloading a media URL that X has already exposed, reading and changing X-Now's settings (validated values only), and opening the folder of a file X-Now saved. Settings and the saved-media list (the paths of the last 50 saves) stay local in `settings.json` under `%APPDATA%\com.xnow.desktop`.
 
 Treat the following as private:
 
@@ -290,6 +304,7 @@ The repository checks validate JavaScript syntax, Rust formatting, Rust dependen
 4. Close (✕) — the app must stay in the tray; tray click must restore it.
 5. Test right-click saving for an image and a video; confirm output in `Downloads\X-Now` (video may hand off to Cobalt when X exposes only a streamed URL).
 6. Test external-link routing: click a `t.co` link in a post — it must open in the default browser; X's own links must stay in-app.
+7. Settings: change a switch (for example Mute sound), restart X-Now, and confirm the value persists and applies.
 
 ---
 
@@ -307,7 +322,6 @@ The repository checks validate JavaScript syntax, Rust formatting, Rust dependen
 | [docs/RELEASE_PIPELINE.md](docs/RELEASE_PIPELINE.md) | GitHub Actions workflow guide, cross-platform build matrix, and release steps |
 | [docs/GITHUB_DESKTOP_PUBLISHING.md](docs/GITHUB_DESKTOP_PUBLISHING.md) | Step-by-step walkthrough for publishing to GitHub using GitHub Desktop |
 | [docs/BUILD_AND_FIXES.md](docs/BUILD_AND_FIXES.md) | **Mandatory reading before touching `lib.rs`, `tray.rs`, or `frontend/x-tools.js`** — every rendering fix (root cause → mechanism → bisect flag), exact build sequence, verification chain, and known gotchas |
-| [backup/README.md](backup/README.md) | 🔒 The protected known-good snapshot of this exact verified release — restore point for anti-regression; read its rules before editing anything it covers |
 
 ---
 
@@ -325,20 +339,20 @@ X-Now ships with three rendering safeguards for WebView2 on Windows:
 Every launch prints the effective configuration to the log:
 
 ```text
-[X-Now] Launch config: webview_args="--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,CalculateNativeWinOcclusion --disable-direct-composition-video-overlays" dark_background=true diagnostics=false
+[X-Now] Launch config: webview_args="--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,CalculateNativeWinOcclusion --disable-direct-composition-video-overlays --autoplay-policy=no-user-gesture-required" dark_background=true diagnostics=false
 [X-Now] Native background synced to page theme: #ffffff
 ```
 
 | Flag | Effect |
 |---|---|
-| *(none)* | Stock behavior — theme-adaptive background + occlusion fix + video-overlay fix (recommended) |
+| *(none)* | Stock: theme-adaptive background, occlusion fix, video-overlay fix, and `--autoplay-policy=no-user-gesture-required` (needed by the unmute setting; applies to every X-Now page, sign-in windows included) (recommended) |
 | `--no-occlusion-fix` | Drops only the occlusion-tracker fix |
 | `--no-gpu-video-overlays-fix` | Drops only the DirectComposition video-overlay fix (use if a black band ever reproduces) |
 | `--webview-default` | Full stock WebView2 behavior (white background, no workarounds) |
 | `--webview-args "..."` | Full custom WebView2 argument list (the wry UI defaults are always kept) |
 | `--webview-diagnostics` | Logs webview runtime state (visibility, video count, decode health) at startup and on every hide/show transition |
 
-For installed copies where the shortcut cannot be edited, the environment variable `XNOW_WEBVIEW_ARGS` applies the same override as `--webview-args` (the CLI flag wins when both are present). The `[X-Now]` log lines are written to stderr, so run X-Now from a terminal when capturing diagnostics — appending `2> xnow.log` saves them to a file. When reporting a rendering issue, attach a `--webview-diagnostics` launch log. Two verification tools back the fixes: the per-frame **screencast harness** (`scripts/xnow-screencast-flash-test.js`, requires `npm i playwright-core`) captures *every compositor frame* via CDP while scrolling the live app and correlates flashes with video lifecycle events (screenshots cannot catch 1-frame transients), and the **JS contract harness** (`npm run test:js` → `scripts/verify-xnow-helpers.js`, 88 assertions over jsdom) guards every `x-tools.js` behavior contract — run both after any change to `x-tools.js`.
+For installed copies where the shortcut cannot be edited, the environment variable `XNOW_WEBVIEW_ARGS` applies the same override as `--webview-args` (the CLI flag wins when both are present). The `[X-Now]` log lines are written to stderr, so run X-Now from a terminal when capturing diagnostics — appending `2> xnow.log` saves them to a file. When reporting a rendering issue, attach a `--webview-diagnostics` launch log. Two verification tools back the fixes: the per-frame **screencast harness** (`scripts/xnow-screencast-flash-test.js`, requires `npm i playwright-core`) captures *every compositor frame* via CDP while scrolling the live app and correlates flashes with video lifecycle events (screenshots cannot catch 1-frame transients), and the **JS contract harness** (`npm run test:js` → `scripts/verify-xnow-helpers.js`, 94 assertions over jsdom; `npm run test:ui` adds 80 UI assertions) guards every `x-tools.js` behavior contract — run both after any change to `x-tools.js`.
 
 ---
 

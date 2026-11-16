@@ -1,10 +1,10 @@
-# X-Now — Build & Rendering-Fix Guide (v2.1.0)
+# X-Now — Build & Rendering-Fix Guide (v2.5.0)
 
 > **Current release: v2.5.0.** The release process has changed (manual dispatch, one universal installer per platform). See [`RELEASE_PIPELINE.md`](RELEASE_PIPELINE.md) and [`releases/X-Now_v2.5.0.md`](releases/X-Now_v2.5.0.md). The rendering-fix content below still applies.
 
 > **Read this file before touching `src-tauri/src/lib.rs`, `src-tauri/src/tray.rs`, `frontend/x-tools.js`, or building any installer.**
-> It documents the v2.1.0 rendering pipeline fixes (bleached screen, black flash bands, scroll flashing), exactly how each fix works, how to build, and how to verify nothing regressed.
-> Audience: future AI coding agents and human developers. Written 2026-09-13 after the v2.1.0 rendering-fix pass.
+> It documents the rendering, window and audio fixes from v2.1.0 to v2.5.0 (bleached screen, black flash bands, scroll flashing, sign-in windows, foreground sound, Task Manager icon, Settings), exactly how each works, how to build, and how to verify nothing regressed.
+> Audience: future AI coding agents and human developers. Written 2026-09-13 after the v2.1.0 rendering-fix pass; updated 2026-11-16 for v2.5.0 (§2.7, §4, §6).
 
 ---
 
@@ -12,7 +12,7 @@
 
 1. **Sync icons before ANY build**: `src-tauri/icons/` must be byte-identical to root `icons/`. The release workflow does this every build; local builds must too (see §4). Skipping this shipped stale icons once already.
 2. **Never bypass `build.rs`**: it (a) watches the bundle icons so icon changes recompile the Windows resource, and (b) registers the app commands in the ACL manifest — without the manifest, Tauri silently rejects every `invoke` from `https://x.com` and ALL media saving dies.
-3. **Run the full verification chain** (§5) after every change: `cargo test --lib`, `node --check frontend/x-tools.js`, `scripts/verify-xnow-helpers.js` (88 assertions). All must be green before bundling.
+3. **Run the full verification chain** (§5) after every change: `cargo test --lib`, `node --check frontend/x-tools.js`, `scripts/verify-xnow-helpers.js` (94 assertions), `scripts/verify-xnow-ui.js` (80). All must be green before bundling.
 4. **Never hardcode the webview background color again**: it must stay theme-adaptive (`XNOWBG` protocol, §3.2). A pinned color is what turned the old white flash into a black flash.
 5. **Keep the launch-arg toggles orthogonal and order-independent** (`--no-occlusion-fix`, `--no-gpu-video-overlays-fix`, `--webview-default`, `--webview-args`, `--webview-diagnostics`). They are the supported way to bisect rendering regressions — do not remove or reorder their resolution logic in `resolve_launch_config()`.
 
@@ -28,21 +28,27 @@ X-Now/                          ← repository root (main checkout)
 │                                  media saving bridge, theme reporter (XNOWBG), toasts, About overlay
 ├── src-tauri/
 │   ├── build.rs                ← icon rerun-if-changed + ACL command manifest (rule 2)
-│   ├── tauri.conf.json         ← productName "X-Now", version "2.1.0", bundle config
-│   ├── Cargo.toml              ← version "2.1.0" (release pipeline asserts both match)
+│   ├── tauri.conf.json         ← productName "X-Now", version "2.5.0", bundle config
+│   ├── Cargo.toml              ← version "2.5.0" (release pipeline asserts both match)
 │   ├── icons/                  ← BUNDLE icon set — must mirror root icons/ (rule 1)
 │   └── src/
 │       ├── lib.rs              ← app core: LaunchConfig resolution, window builder, XNOWBG
 │       │                          handler, event-driven playback watchdog, media-saving
-│       │                          commands, diagnostics, 22 unit tests (#[cfg(test)])
-│       └── tray.rs             ← native tray menu, native set_zoom (100–300%), show/hide logic
+│       │                          commands, big window icon, diagnostics (#[cfg(test)])
+│       ├── tray.rs             ← native tray menu, Settings submenu, native set_zoom (100–300%)
+│       ├── settings.rs         ← settings.json store, validated patches, saved-media history
+│       ├── audio.rs            ← Windows Core Audio session mute decisions (decide())
+│       └── webview_sleep.rs    ← WebView2 page sleep while hidden (Windows)
 ├── scripts/
-│   ├── verify-xnow-helpers.js  ← jsdom harness: 88 assertions over x-tools.js contracts
-│   └── xnow-flash-smoke-test.js← Playwright/CDP scroll-flash measurement on the REAL exe
+│   ├── verify-xnow-helpers.js  ← jsdom harness: 94 assertions over x-tools.js contracts
+│   ├── verify-xnow-ui.js       ← jsdom harness: 80 assertions over the UI and Settings sheet
+│   ├── verify-xnow-settings-live.js ← live CDP suite: 172 checks on the built exe (Windows)
+│   ├── xnow-flash-smoke-test.js← Playwright/CDP scroll-flash measurement on the REAL exe
+│   └── diagnostics/            ← one-off probes (not run by npm scripts)
 ├── docs/BUILD_AND_FIXES.md     ← this file
 ├── icons/                      ← SOURCE OF TRUTH icon set (HD)
-├── X-Now_v2.1.0.exe            ← published standalone exe (must match a verified build)
-├── CHANGELOG.md / README.md / RELEASE_NOTES.md / SECURITY.md / CONTRIBUTING.md
+├── dist/                       ← release builds: X-Now_vX.Y.Z.exe, checksums.txt, installers/ (git-ignored)
+├── CHANGELOG.md / README.md / RELEASE_NOTES.md / SECURITY.md / CONTRIBUTING.md / AGENTS.md
 └── docs/RELEASE_PIPELINE.md    ← GitHub Actions release build guide
 ```
 
@@ -116,6 +122,17 @@ After 2.2/2.3/2.5 the user STILL saw occasional shocking flashes while scrolling
 
 ---
 
+### 2.7 Window, audio and Settings layer (v2.5.0)
+
+- **Foreground unmute (`frontend/x-tools.js`).** `applyDefaultVideoAudio` leaves feed videos unmuted while `unmuteWhenActive` is on. `unmuteForActiveWindow` runs on a capture-phase `play` listener and on window `focus`. It unmutes each `currentSrc` once (`dataset.xnowFgSrc`), and only while `document.visibilityState === "visible" && document.hasFocus()`, so a mute you set stays until the source changes. With the setting off, the v2.1 lock applies: feed videos stay muted until a click.
+- **Autoplay switch (`DEFAULT_WEBVIEW_BROWSER_ARGS`).** `--autoplay-policy=no-user-gesture-required` lets unmuted autoplay start right after launch. It applies to every page in the WebView, including sign-in windows. `--webview-args` and `XNOW_WEBVIEW_ARGS` replace the list, so a custom list must include the switch too.
+- **Pause and mute on hide.** `window.__onWindowHidden` reads `pauseOnMinimize` and `muteOnMinimize` from `window.__xnowSettings` (both default on). The watchdog syncs `audio::Mode::Hidden` only when `mute_on_minimize` is true; otherwise it syncs `Mode::Visible`.
+- **Settings store (`settings.rs`).** camelCase JSON with `#[serde(default)]`, so older files load with defaults. `apply_patch` validates each value. Writes go to `settings.json.tmp`, then rename over `settings.json`. A corrupt file is kept as `settings.json.bad`. `update_settings` refuses `launchAtLogin`; only the tray changes it.
+- **Task Manager icon (`set_big_window_icon`).** Tao applies `.icon(...)` to the small icon only. The function sends `WM_SETICON` with `ICON_BIG`, loaded from the exe's icon group (resource ID 32512). Check it live: `WM_GETICON` with `ICON_BIG` must not return 0.
+- **Sign-in popups (`classify_new_window`).** Whole-host matching decides between SignIn, MainWindow, External and Allow. Full rules: [`releases/X-Now_v2.5.0.md`](releases/X-Now_v2.5.0.md) §3.2.
+
+---
+
 ## 3. Building
 
 ### 3.1 Prerequisites (Windows)
@@ -129,7 +146,7 @@ After 2.2/2.3/2.5 the user STILL saw occasional shocking flashes while scrolling
 ```bash
 cd src-tauri
 
-# 0) unit tests FIRST — 22 must pass
+# 0) unit tests FIRST — 41 must pass
 cargo test --lib
 
 # 1) sync icons root → bundle (rule 1) and verify byte-for-byte
@@ -142,7 +159,7 @@ sha256sum ../icons/* icons/* | sort   # eyeball: each pair identical
 cargo build --release
 
 # 3) bundle installers (NSIS + MSI under target/release/bundle/)
-npx --yes @tauri-apps/cli@2 build --bundles nsis,msi
+npx --yes @tauri-apps/cli@2.11.5 build --bundles nsis,msi
 #    (the CLI build re-runs cargo; do NOT skip step 2 if you only want the exe)
 
 # 4) verify the ICON actually got into the exe (rule from §2.5):
@@ -157,30 +174,32 @@ After any `frontend/x-tools.js` change, repeat from step 0 — remember the file
 | Artifact | Path |
 |---|---|
 | Standalone exe | `src-tauri/target/release/X-Now.exe` |
-| NSIS installer | `src-tauri/target/release/bundle/nsis/X-Now_2.1.0_x64-setup.exe` |
-| MSI installer | `src-tauri/target/release/bundle/msi/X-Now_2.1.0_x64_en-US.msi` |
+| NSIS installer | `src-tauri/target/release/bundle/nsis/X-Now_2.5.0_x64-setup.exe` |
+| MSI installer | `src-tauri/target/release/bundle/msi/X-Now_2.5.0_x64_en-US.msi` |
 
-The published repo-root `X-Now_v2.1.0.exe` **must be replaced** with the newly verified `target/release/X-Now.exe` (this was missed once — the root exe went stale while the sources were fixed).
+The published `dist/X-Now_v2.5.0.exe` **must be replaced** with the newly verified `target/release/X-Now.exe` (this was missed once — the root exe went stale while the sources were fixed). The release copies in `dist/` are listed in §6.1.
 
 ---
 
 ## 4. Verification & testing
 
-### 4.1 Rust unit tests (22)
+### 4.1 Rust unit tests (41)
 
 ```bash
 cd src-tauri && cargo test --lib
 ```
 Covers `resolve_launch_config` (every flag + precedence + combination), `remove_feature`, `parse_css_color_to_native` (rgb/hex/bare `r,g,b`), and regression cases. `cargo check` must also be clean.
 
-### 4.2 JS contract harness (88 assertions, jsdom)
+### 4.2 JS contract harness (94 assertions, jsdom)
 
 ```bash
 npm install          # one-time; installs the pinned devDependencies (jsdom 30, playwright-core)
-npm run test:js      # 88 assertions
+npm run test:js      # 94 assertions
 ```
 (The harness requires jsdom ≥ 25: it dispatches `PointerEvent`, which jsdom 24 lacks.)
 Asserts the page-side contracts Rust relies on: `__onWindowHidden` / `__resumeIfNeeded` idempotency, pause/resume/mute behavior, theme reporter payload format (`XNOWBG:r,g,b`), saving bridges. **If you change `x-tools.js` and these fail, Rust behavior will break too** — the two sides are coupled by string contracts.
+
+**v2.5.0 additions.** `npm run test:ui` runs `scripts/verify-xnow-ui.js` (80 assertions) over the Settings sheet and its switches. `npm run test:live` runs `scripts/verify-xnow-settings-live.js` (172 checks, Windows) against the built exe over CDP. It closes any running X-Now, sets Pause video and Mute sound on before their checks, and restores `settings.json` at the end.
 
 ### 4.3 Scroll-flash smoke test (Playwright over CDP, the real exe)
 
@@ -212,7 +231,7 @@ Launch-config line at startup + webview state (visibility, open/playing videos, 
 
 | Flag / env | Effect |
 |---|---|
-| *(none)* | Stock: theme-adaptive background + occlusion fix + video-overlay fix (**recommended**) |
+| *(none)* | Stock: theme-adaptive background, occlusion fix, video-overlay fix, and the autoplay switch (**recommended**) |
 | `--no-occlusion-fix` | Drops only `CalculateNativeWinOcclusion` |
 | `--no-gpu-video-overlays-fix` | Drops only `--disable-direct-composition-video-overlays` |
 | `--webview-default` | Full stock WebView2 (white background, no workarounds — escape hatch) |
@@ -236,6 +255,10 @@ Safety rails (in `resolve_launch_config`, covered by tests): user overrides neve
 | `icons/icon.icns` is a renamed 32×32 PNG (pre-existing) | macOS pipeline would embed a 32px icon | Harmless on Windows; regenerate a real multi-size .icns before any macOS release push |
 | `set_background_color` with a constant | Reintroduces dark-on-light (or white-on-dark) flash | Theme must flow through XNOWBG only (§2.2-B) |
 | ACL manifest missing in `build.rs` | All `invoke`s from x.com silently rejected | Never delete the `AppManifest::new().commands(&[…])` block |
+| Window has no large icon | Task Manager shows a blank tile (`.icon()` sets only the small icon) | Keep `set_big_window_icon`; check `WM_GETICON` with `ICON_BIG` is non-zero |
+| `tauri build` fails with "being used by another process" | `target/release/X-Now.exe` is running, and bundling must rewrite it | Close X-Now first, or build with `CARGO_TARGET_DIR` outside the tree |
+| Live Settings suite assumes a switch state | A check that expects Mute sound on fails for anyone who turned it off | `setOn()` in `verify-xnow-settings-live.js` turns each switch on first |
+| X-Now mutes the first playing `<video>` in the page | A test video added last is not the one muted, so the check passes or fails at random | Prepend the test video (`document.body.prepend`) |
 
 ---
 
@@ -249,16 +272,26 @@ Safety rails (in `resolve_launch_config`, covered by tests): user overrides neve
 
 Verified at build time: 22 Rust tests, 88/88 JS harness assertions (incl. 15 video-mount-guard contracts), screencast A/B shows ZERO genuine black-gap frames (mount-guard engaged, released-on-first-frame), theme-sync line present, all guard/fix strings embedded in the exe.
 
-> If you rebuild, these hashes change by design — regenerate this table and the tracked `checksums.txt` as part of the release checklist in `docs/RELEASE_PIPELINE.md`.
+> If you rebuild, these hashes change by design — regenerate this table and the tracked `dist/checksums.txt` as part of the release checklist in `docs/RELEASE_PIPELINE.md`.
 
 ---
 
+### 6.1 v2.5.0 local build (2026-11-16)
+
+| Artifact | SHA-256 |
+|---|---|
+| `dist/X-Now_v2.5.0.exe` (= `src-tauri/target/release/X-Now.exe`) | `5e5bece385b1e282c7a5f801b43e6fa8099947c4f3cb5ef9a82dcfc2b57273d2` |
+| `dist/installers/X-Now_2.5.0_x64-setup.exe` | `970efa4ac04f8e1c8c83a34e088794fe61d1c4384ecfb8c325d1792dcea92226` |
+| `dist/installers/X-Now_2.5.0_x64_en-US.msi` | `f02af0d5f3f605d0e36e53d36abb52ee9515511f7800ffc797a160491b9b192d` |
+
+Verified at build time: 41 Rust tests, 94/94 contract assertions, 80/80 UI assertions, 172/172 live checks (both starting states of the switches), icons byte-identical (6 of 6), big window icon set, and every `frontend/*.js` file embedded verbatim in the exe (byte search). The bundle copies differ from the standalone exe only in Tauri's 3-byte bundler marker and build timestamps.
+
 ## 7. Release checklist (condensed; full guide in `docs/RELEASE_PIPELINE.md`)
 
-> **Known-good snapshot:** a frozen, checksum-manifested copy of every file that constitutes this verified release lives in **`backup/v2.1.0/`** (see `backup/README.md`). If any change regresses the rendering fixes, restore the affected files from there and re-verify — never edit the snapshot in place.
+> **Known-good snapshot:** a frozen, checksum-manifested copy of every file that constitutes this verified release lives in **`backup/v2.1.0/`** (local only; git-ignored). If any change regresses the rendering fixes, restore the affected files from there and re-verify — never edit the snapshot in place.
 
 1. §3.2 build sequence green (tests → icon sync → build → bundle → icon verification).
 2. §4 verification chain green (unit + harness + smoke test + log lines).
-3. Replace root `X-Now_v2.1.0.exe` with the verified exe; regenerate `checksums.txt`.
+3. Replace `dist/X-Now_vX.Y.Z.exe` with the verified exe; regenerate `dist/checksums.txt` and the §6 hash table.
 4. `CHANGELOG.md` / `RELEASE_NOTES.md` / `README.md` updated; version identical in `tauri.conf.json`, `Cargo.toml`, `Cargo.lock` (the release pipeline hard-asserts this).
-5. Commit and push. Then start the Release workflow from GitHub Actions (manual dispatch; see `RELEASE_PIPELINE.md`). Do not push a tag: the workflow does not run on tags.
+5. Commit and push to `main`. Then start the Release workflow from GitHub Actions (manual dispatch; see `RELEASE_PIPELINE.md`). The workflow does not run on tags; publishing the draft creates the tag.

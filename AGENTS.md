@@ -42,7 +42,7 @@ The following core systems have been iteratively refined and battle-tested. AI a
    - In-page script `frontend/x-tools.js` computes the real background color and emits `XNOWBG:r,g,b` via the title channel; native `lib.rs` receives it and updates `set_background_color` dynamically. This is the only way to prevent dark/light scroll-flash bands.
 2. **Video Mount Guard**:
    - X mounts video player chrome black for ~3 frames before media paints.
-   - `frontend/x-tools.js` enforces `data-xnow-mount-wait` on freshly mounted or recycled `<video>` elements, hiding unpainted chrome until `loadeddata` fires. Never bypass or remove this guard.
+   - `frontend/x-tools.js` enforces `data-xnow-mount-wait` on freshly mounted or recycled `<video>` elements, hiding unpainted chrome until the first frame decodes (`loadeddata`/`canplay`/`playing`, 1.5 s failsafe). It re-arms on `loadstart`/`emptied`. Never bypass or remove this guard.
 3. **Decoupled GPU Video Overlays**:
    - `--disable-direct-composition-video-overlays` must remain in `DEFAULT_WEBVIEW_BROWSER_ARGS`. DirectComposition video overlay planes detach during scroll, causing black bands.
 4. **Suppressed Native Occlusion Tracking**:
@@ -53,15 +53,19 @@ The following core systems have been iteratively refined and battle-tested. AI a
    - Because `x.com` is a remote origin, every invokable command (the list in `src-tauri/build.rs`) must remain declared there and granted in `src-tauri/capabilities/remote.json`. Without this, Tauri v2 blocks all media saving.
 7. **Byte-Identical Icon Synchronization**:
    - `src-tauri/icons/` must always match `icons/` byte-for-byte. `src-tauri/build.rs` watches these files so Windows `.res` resources recompile automatically upon icon updates.
+8. **Autoplay Switch (v2.5.0)**:
+   - `--autoplay-policy=no-user-gesture-required` must remain in `DEFAULT_WEBVIEW_BROWSER_ARGS`. The Settings option "Unmute videos when X-Now is active" depends on it.
+9. **Big Window Icon (v2.5.0)**:
+   - `set_big_window_icon` in `src-tauri/src/lib.rs` must stay. `.icon(...)` sets only the small icon, so without it Task Manager shows a blank tile.
 
 ---
 
 ## 4. Verification Mandate
 
 Before committing or recommending changes, all agents must run:
-- `cd src-tauri && cargo test --lib` (40/40 unit tests passing).
-- `node scripts/verify-xnow-helpers.js` (88/88 contract assertions passing).
-- `node scripts/verify-xnow-ui.js` (79/79 UI assertions passing).
+- `cd src-tauri && cargo test --lib` (41/41 unit tests passing).
+- `node scripts/verify-xnow-helpers.js` (94/94 contract assertions passing).
+- `node scripts/verify-xnow-ui.js` (80/80 UI assertions passing).
 - `cargo fmt --all -- --check` & `cargo check`.
 
 *Authored and maintained solely by Benedictus Reynaldo Hartanto ([@benedictusrey](https://github.com/benedictusrey)).*

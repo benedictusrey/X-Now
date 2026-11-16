@@ -10,7 +10,7 @@ const { chromium } = require('playwright-core');
 const { spawn } = require('child_process');
 const path = require('path');
 
-const REPO = path.resolve(__dirname, '..');
+const REPO = path.resolve(__dirname, '..', '..');
 const EXE = path.join(REPO, 'src-tauri', 'target', 'release', 'X-Now.exe');
 const PORT = 9333;
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));

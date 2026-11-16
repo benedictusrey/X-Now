@@ -368,13 +368,14 @@
     const standalone = isStandaloneVideo(video);
     const volume = defaultVolumeForVideo(video);
     // The profile includes the volume, so a changed Settings value reaches videos already on the page.
-    const profile = `${standalone ? "standalone" : "feed"}:${volume}:${standalone || state.videoAudioUnlocked ? "open" : "locked"}`;
+    const open = standalone || state.videoAudioUnlocked || window.__xnowSettings?.unmuteWhenActive === true;
+    const profile = `${standalone ? "standalone" : "feed"}:${volume}:${open ? "open" : "locked"}`;
     if (video.dataset.xnowAudioProfile === profile) return;
     try {
       video.volume = volume;
       // Feed videos follow X's own muted-autoplay rule until the user has interacted
-      // with any media. After that, X's mute state is the authority and X-Now never fights it.
-      if (!standalone && !state.videoAudioUnlocked) video.muted = true;
+      // with any media, or the active-window setting is on. After that, X's mute state is the authority.
+      if (!open) video.muted = true;
       video.dataset.xnowAudioProfile = profile;
     } catch (error) {
       console.warn("X-Now could not apply the video audio default:", error);
@@ -409,6 +410,26 @@
     state.videoAudioUnlocked = true;
     if (isStandaloneVideo(media)) activateVideoAudio(media);
   }, true);
+
+  // "Unmute videos when X-Now is active" (Settings). Unmutes each source once, and only
+  // while X-Now is the focused, visible window, so a mute set afterwards stays until the source changes.
+  function unmuteForActiveWindow(video) {
+    if (!(video instanceof HTMLVideoElement)) return;
+    if (window.__xnowSettings?.unmuteWhenActive !== true) return;
+    if (document.visibilityState !== "visible" || !document.hasFocus()) return;
+    if (video.dataset.xnowFgSrc === video.currentSrc) return;
+    try {
+      video.volume = defaultVolumeForVideo(video);
+      video.muted = false;
+      video.dataset.xnowFgSrc = video.currentSrc;
+    } catch (error) {
+      console.warn("X-Now could not unmute the video in the foreground:", error);
+    }
+  }
+  document.addEventListener("play", event => unmuteForActiveWindow(event.target), true);
+  window.addEventListener("focus", () => {
+    if (state.activeVideo && !state.activeVideo.paused) unmuteForActiveWindow(state.activeVideo);
+  });
 
   function isVideoOnScreen(video) {
     const rect = video.getBoundingClientRect();

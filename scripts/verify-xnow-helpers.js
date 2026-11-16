@@ -566,6 +566,36 @@ setTimeout(() => {
     'stale-gated player releases when the new stream decodes');
 }, 10);
 
+    // ── Unmute when X-Now is active: play and focus, once per source ──────────
+    const activeCase = ({ setting, focused, playing = false }) => {
+      const d = makeDom();
+      d.window.__xnowSettings = { unmuteWhenActive: setting, feedVolume: 20, standaloneVolume: 50 };
+      d.window.document.hasFocus = () => focused;
+      const v = makeVideo(d, { muted: true, playing });
+      Object.defineProperty(v, 'currentSrc', { value: 'blob:feed-1', writable: true, configurable: true });
+      return { d, v, play: () => v.dispatchEvent(new d.window.Event('play')) };
+    };
+    const onCase = activeCase({ setting: true, focused: true });
+    onCase.play();
+    assert(onCase.v.muted === false, 'setting on + focused: feed video unmuted on play');
+    onCase.v.muted = true; // the user mutes it again
+    onCase.play();
+    assert(onCase.v.muted === true, 'a mute set by the user stays for the same source');
+    onCase.v.currentSrc = 'blob:feed-2';
+    onCase.play();
+    assert(onCase.v.muted === false, 'a new source is unmuted again');
+    const offCase = activeCase({ setting: false, focused: true });
+    offCase.play();
+    assert(offCase.v.muted === true, 'setting off: feed video stays muted');
+    const backCase = activeCase({ setting: true, focused: false });
+    backCase.play();
+    assert(backCase.v.muted === true, 'setting on but window not focused: stays muted');
+    const focusCase = activeCase({ setting: true, focused: false, playing: true });
+    focusCase.v.dispatchEvent(new focusCase.d.window.PointerEvent('pointerdown', { button: 0, bubbles: true }));
+    focusCase.d.window.document.hasFocus = () => true;
+    focusCase.d.window.dispatchEvent(new focusCase.d.window.Event('focus'));
+    assert(focusCase.v.muted === false, 'window focus unmutes the playing video once');
+
     // ── Cleanup sanity: single style element across the whole session ──────────
     assert(doc.querySelectorAll('style').length === 1, 'no style duplication after route polls');
 

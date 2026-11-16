@@ -60,7 +60,7 @@ cd .. && npm run test:js && npm run test:ui
 
 Also confirm that `icons/` and `src-tauri/icons/` are identical. Every build job checks this byte for byte and fails if they differ.
 
-Commit the release (notes, manifests, icons, `checksums.txt`), push it, and then start the workflow. Do not tag before the draft release is verified (see the last section).
+Commit the release (notes, manifests, icons, `dist/checksums.txt` and `dist/X-Now_vX.Y.Z.exe`), push it to `main`, and then start the workflow. Do not create the tag before the draft is verified; publishing creates it (see After the run).
 
 ## Release assets
 
@@ -102,7 +102,7 @@ Compare the printed hash with `SHA256SUMS.txt`, or let the checker print `OK` fo
 1. Open **Releases** on the repository. The draft **X-Now 2.5.0** has the assets and the notes from `docs/releases/X-Now_v2.5.0.md`.
 2. Check the notes and the asset list.
 3. Publish the release yourself. Publishing is a manual step.
-4. Only after that, create the tag if the release needs one. Pushing a `v*` tag does **not** start this workflow.
+4. Publishing creates the tag `vX.Y.Z` on the commit `main` points to. Before you publish, confirm `main` still points to the release commit. Pushing a `v*` tag does **not** start this workflow.
 
 ## Costs
 
