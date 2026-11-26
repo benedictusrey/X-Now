@@ -149,7 +149,26 @@ jobs:
             exit 1
           fi
           mkdir -p dist
-          cp "$appimage" "dist/X-Now_${APP_VERSION}_amd64.AppImage"
+          # Strip bundled Ubuntu 22.04 libs that break host Mesa EGL (libwayland-*)
+          # or collide with WebKitGTK's libsoup-3.0 (libsoup-2.4 / libgstsoup).
+          work_dir="$(mktemp -d)"
+          (
+            cd "$work_dir"
+            APPIMAGE_EXTRACT_AND_RUN=1 "$OLDPWD/$appimage" --appimage-extract >/dev/null
+            chmod -R a+rX squashfs-root
+            rm -f squashfs-root/usr/lib/libwayland-* \
+                  squashfs-root/usr/lib/libsoup-2.4* \
+                  squashfs-root/usr/lib/gstreamer-1.0/libgstsoup*
+            appimagetool="$(find "$HOME/.cache/tauri" -maxdepth 2 -name 'appimagetool*' -type f -print -quit 2>/dev/null || true)"
+            if [ -z "$appimagetool" ] || [ ! -x "$appimagetool" ]; then
+              appimagetool="$work_dir/appimagetool"
+              curl -fsSL https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage -o "$appimagetool"
+              chmod +x "$appimagetool"
+            fi
+            APPIMAGE_EXTRACT_AND_RUN=1 ARCH=x86_64 "$appimagetool" --no-appstream squashfs-root "$OLDPWD/dist/X-Now_${APP_VERSION}_amd64.AppImage"
+          )
+          rm -rf "$work_dir"
+          chmod +x "dist/X-Now_${APP_VERSION}_amd64.AppImage"
           cp "$deb" "dist/X-Now_${APP_VERSION}_amd64.deb"
           cp "$rpm" "dist/X-Now_${APP_VERSION}_x86_64.rpm"
 
