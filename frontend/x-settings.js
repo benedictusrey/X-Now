@@ -102,7 +102,10 @@
     media.muted = true;
     media.pause();
   }, true);
-  setInterval(enforceQuiet, 15000);
+  setInterval(() => {
+    if (document.hidden || !window.__xnowSettings || window.__xnowSettings.quietMode === "off") return;
+    enforceQuiet();
+  }, 15000);
 
   // ── Applying settings to the page ────────────────────────────────────────
   // One attribute carries the motion choice. "System" follows the OS preference,
@@ -120,9 +123,15 @@
     if (state.view) applyToPage(state.view);
   });
 
-  async function loadSettings(retries = LOAD_RETRIES) {
+  // Writes and native refreshes serialize on one queue; `writeSeq` prevents
+  // an earlier get_settings reply from overwriting a newer optimistic write.
+  let writes = Promise.resolve();
+  let writeSeq = 0;
+
+  async function loadSettings(retries = LOAD_RETRIES, seqAtStart = writeSeq) {
     try {
       const view = await invoke("get_settings");
+      if (seqAtStart !== writeSeq) return;
       state.view = view;
       window.__xnowSettings = view;
       applyToPage(view);
@@ -130,18 +139,15 @@
     } catch (error) {
       // The bridge can arrive after this script runs; retry briefly.
       if (retries > 0) {
-        setTimeout(() => loadSettings(retries - 1), LOAD_RETRY_MS);
+        setTimeout(() => loadSettings(retries - 1, seqAtStart), LOAD_RETRY_MS);
       } else {
         console.warn("X-Now could not load settings:", error);
       }
     }
   }
 
-  // Writes run one after another. A quick second click therefore builds on the
-  // first one, and the file cannot end up out of step with the screen.
-  let writes = Promise.resolve();
-
   function save(patch) {
+    writeSeq += 1;
     if (state.view) {
       Object.assign(state.view, patch);
       applyToPage(state.view);
@@ -152,15 +158,17 @@
   }
 
   async function write(patch) {
+    const seq = writeSeq;
     try {
       const view = await invoke("update_settings", { patch });
+      if (seq !== writeSeq) return;
       state.view = view;
       window.__xnowSettings = view;
       applyToPage(view);
       render();
     } catch (error) {
       window.showToast?.(String(error?.message || error), "error");
-      await loadSettings(0);
+      await loadSettings(0, writeSeq);
     }
   }
 
@@ -391,7 +399,7 @@
       list.dataset.key = key;
       list.replaceChildren();
       if (!items.length) {
-        list.append(el("p", "xnow-empty", "No saves yet. Right-click an image or video to save it."));
+        list.append(el("p", "xnow-empty", "No saves yet. Open Downloader or right-click media to save it."));
         return;
       }
       items.forEach(item => {
@@ -537,7 +545,7 @@
       width: 18px;
       height: 18px;
       border-radius: 50%;
-      background: #ffffff;
+      background: var(--xnow-knob, #ffffff);
       box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
       transition: transform 150ms var(--xnow-ease);
     }
@@ -597,7 +605,7 @@
       width: 18px;
       height: 18px;
       border-radius: 50%;
-      background: #ffffff;
+      background: var(--xnow-knob, #ffffff);
       box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
       transition: box-shadow 120ms var(--xnow-ease);
     }
@@ -673,9 +681,22 @@
     html[data-xnow-motion="reduce"] #xnow-settings-scrim,
     html[data-xnow-motion="reduce"] .xnow-switch,
     html[data-xnow-motion="reduce"] .xnow-switch::after,
-    html[data-xnow-motion="reduce"] .xnow-seg-pill {
+    html[data-xnow-motion="reduce"] .xnow-seg-pill,
+    html[data-xnow-motion="reduce"] .xnow-pill,
+    html[data-xnow-motion="reduce"] .xnow-set-close {
       transition: none !important;
       transform: none !important;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      html:not([data-xnow-motion="full"]) #xnow-settings,
+      html:not([data-xnow-motion="full"]) #xnow-settings-scrim,
+      html:not([data-xnow-motion="full"]) .xnow-switch,
+      html:not([data-xnow-motion="full"]) .xnow-switch::after,
+      html:not([data-xnow-motion="full"]) .xnow-seg-pill,
+      html:not([data-xnow-motion="full"]) .xnow-pill,
+      html:not([data-xnow-motion="full"]) .xnow-set-close {
+        transition: none;
+      }
     }
   `;
 
@@ -820,7 +841,9 @@
   window.__xnowCloseSettings = close;
   window.__xnowToggleSettings = () => (state.open ? close() : open());
   // Called by the native side when a tray change or another settings write lands.
-  window.__xnowSettingsChanged = () => loadSettings(0);
+  window.__xnowSettingsChanged = () => {
+    writes = writes.then(() => loadSettings(0, writeSeq));
+  };
 
   // Escape closes the sheet. Tab stays inside it while it is open.
   document.addEventListener("keydown", event => {

@@ -89,12 +89,12 @@
   }
 
   var FEATURES = [
-    ["save", "Save media", "Right-click a photo or video to save it to Downloads, X-Now."],
+    ["save", "X-Now Downloader", "Save multi-image posts, HD videos, .m4a audio, and post text from the top-left rail."],
     ["tray", "Tray controls", "Show or hide X-Now, browse X, refresh and zoom from the tray."],
     ["moon", "Quiet hours", "Mute and pause video on a schedule, at night or in your own window."],
     ["minimize", "While minimized", "Pause video, mute sound and sleep the page while the window is hidden."],
     ["external", "Links open outside", "Links and the Cobalt guide open in your default browser."],
-    ["film", "Cobalt fallback", "If X cannot save a video, the post link is copied and Cobalt opens."]
+    ["film", "Media saving", "Right-click any photo or video to save it directly to Downloads, X-Now."]
   ];
 
   var returnFocus = document.activeElement;
@@ -229,12 +229,12 @@
     "#" + ID + " .xnow-about-close{display:grid;place-items:center;width:34px;height:34px;padding:0;border:0;border-radius:999px;background:transparent;color:var(--xnow-text);cursor:pointer;flex:0 0 auto}",
     "#" + ID + " .xnow-about-close:hover{background:var(--xnow-hover)}",
     "#" + ID + " .xnow-about-heading{margin:20px 0 10px;font-size:14px;font-weight:600;color:var(--xnow-text)}",
-    "#" + ID + " .xnow-about-tiles{display:grid;grid-template-columns:1fr 1fr;gap:8px}",
+    "#" + ID + " .xnow-about-tiles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}",
     "#" + ID + " .xnow-about-tile{background:var(--xnow-hover);border-radius:14px;padding:12px 14px}",
     "#" + ID + " .xnow-about-tile-top{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--xnow-muted)}",
     "#" + ID + " .xnow-about-tile-value{margin-top:6px;font-size:17px;font-weight:600;color:var(--xnow-text)}",
     "#" + ID + " .xnow-about-tile-detail{margin-top:2px;font-size:12px;color:var(--xnow-sub)}",
-    "#" + ID + " .xnow-about-features{display:grid;grid-template-columns:1fr 1fr;gap:12px 16px}",
+    "#" + ID + " .xnow-about-features{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 16px}",
     "#" + ID + " .xnow-about-feature{display:flex;gap:12px}",
     "#" + ID + " .xnow-about-glyph{display:grid;place-items:center;width:34px;height:34px;border-radius:10px;background:var(--xnow-hover);color:var(--xnow-text);flex:0 0 auto}",
     "#" + ID + " .xnow-about-feature-title{font-size:14px;font-weight:600;color:var(--xnow-text)}",
@@ -245,7 +245,7 @@
     "#" + ID + " .xnow-about-credit{margin:0;font-size:13px;color:var(--xnow-sub)}",
     "#" + ID + " .xnow-about-link{color:var(--xnow-accent);text-decoration:none;border-radius:4px}",
     "#" + ID + " .xnow-about-link:hover{text-decoration:underline}",
-    "#" + ID + " .xnow-about-ok{padding:8px 18px;border:0;border-radius:999px;background:var(--xnow-accent);color:#fff;font-size:14px;font-weight:600;line-height:1.2;cursor:pointer}",
+    "#" + ID + " .xnow-about-ok{padding:8px 18px;border:0;border-radius:999px;background:var(--xnow-accent);color:var(--xnow-accent-ink,#fff);font-size:14px;font-weight:600;line-height:1.2;cursor:pointer}",
     "#" + ID + " button:focus-visible,#" + ID + " a:focus-visible{outline:2px solid var(--xnow-accent);outline-offset:2px}",
     "@media (max-width:480px){#" + ID + " .xnow-about-tiles,#" + ID + " .xnow-about-features{grid-template-columns:1fr}}",
     "@keyframes xnow-about-in{from{opacity:0;transform:scale(.97)}to{opacity:1;transform:none}}",

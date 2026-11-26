@@ -25,9 +25,10 @@
   const SETTLE_MAX_FRAMES = 90;   // about 1.5 s at 60 fps, a cap if X keeps moving
   const SVG_NS = "http://www.w3.org/2000/svg";
   const PAIR_SIZE = 36;               // button size beside the logo
-  const PAIR_GAP = 4;                 // gap between the two buttons
-  const PAIR_WIDTH = PAIR_SIZE * 2 + PAIR_GAP;
-  const MIN_SIZE = 22;                // smallest button that is still easy to hit
+  const PAIR_GAP = 4;                 // gap between rail buttons
+  const RAIL_COUNT = 3;               // Settings, Downloader, Refresh
+  const PAIR_WIDTH = PAIR_SIZE * RAIL_COUNT + PAIR_GAP * (RAIL_COUNT - 1);
+  const MIN_SIZE = 18;                // smallest button that is still easy to hit
 
   const style = document.createElement("style");
   style.textContent = `
@@ -40,12 +41,13 @@
       z-index: 2147482900;
       display: inline-flex;
       align-items: center;
-      gap: 4px;
+      gap: var(--rail-gap, 4px);
       opacity: 0;
       pointer-events: none;
       transition: opacity 180ms var(--xnow-ease);
     }
-    .xnow-rail-tools.is-placed { opacity: 1; pointer-events: auto; }    .xnow-rail-btn {
+    .xnow-rail-tools.is-placed { opacity: 1; pointer-events: auto; }
+    .xnow-rail-btn {
       display: inline-flex;
       align-items: center;
       justify-content: center;
@@ -61,6 +63,7 @@
     }
     .xnow-rail-btn:hover { background: var(--xnow-hover, rgba(231, 233, 234, 0.1)); }
     .xnow-rail-btn:active { transform: scale(0.94); }
+    .xnow-rail-btn:focus-visible { outline: 2px solid var(--xnow-accent); outline-offset: 2px; }
     .xnow-rail-btn:disabled { cursor: progress; }
     .xnow-rail-btn[aria-expanded="true"] { background: var(--xnow-accent-soft); }
     .xnow-rail-btn svg { width: calc(var(--rail-size, 36px) * 0.55); height: calc(var(--rail-size, 36px) * 0.55); }
@@ -86,6 +89,7 @@
 
   let toolsEl = null;
   let brandEl = null;
+  let downloadEl = null;
   let refreshEl = null;
   let busy = false;
   let logoEl = null;
@@ -111,6 +115,37 @@
     img.draggable = false;
     button.appendChild(img);
     button.addEventListener("click", () => window.__xnowToggleSettings?.());
+    return button;
+  }
+
+  // Downloader icon (placed directly on the left of Refresh feed).
+  function downloadIcon() {
+    const svg = document.createElementNS(SVG_NS, "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("aria-hidden", "true");
+    svg.setAttribute("fill", "none");
+    svg.setAttribute("stroke", "currentColor");
+    svg.setAttribute("stroke-width", "2");
+    svg.setAttribute("stroke-linecap", "round");
+    svg.setAttribute("stroke-linejoin", "round");
+    for (const d of ["M12 3v12", "m7 10 5 5 5-5", "M5 20h14"]) {
+      const path = document.createElementNS(SVG_NS, "path");
+      path.setAttribute("d", d);
+      svg.appendChild(path);
+    }
+    return svg;
+  }
+
+  function downloadControl() {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "xnow-rail-btn xnow-rail-download xnow-ui";
+    button.setAttribute("aria-label", "X-Now Downloader");
+    button.title = "X-Now Downloader";
+    button.appendChild(downloadIcon());
+    button.addEventListener("click", () => {
+      window.__xnowTools?.openDownloader?.("", window.__xnowTools?.pickActiveFeedMedia?.() || null);
+    });
     return button;
   }
 
@@ -199,7 +234,10 @@
       // The "Show N posts" pill is X's own "load new posts": take it first.
       let pill = newPostsPill();
       if (!pill) {
-        window.scrollTo({ top: 0, behavior: "smooth" });
+        window.scrollTo({
+          top: 0,
+          behavior: document.documentElement.dataset.xnowMotion === "reduce" ? "auto" : "smooth"
+        });
         link.click();
         pill = await waitFor(newPostsPill, LOAD_WAIT_MS);
       }
@@ -234,23 +272,28 @@
   window.__xnowRailEdge = () => panelEdge() ?? 288;
 
   // The logo: a link holding only an SVG, sitting above the nav and inside its
-  // horizontal span. Matched by position, so X's link names can change.
+  // horizontal span. Scoped to nav's container first to avoid full-document reflows.
   function findLogo(nav) {
     const n = nav.getBoundingClientRect();
-    return Array.from(document.querySelectorAll('a, [role="link"]')).find(el => {
+    const match = el => {
       if (!el.querySelector("svg") || el.textContent.trim()) return false;
       const r = el.getBoundingClientRect();
       return r.bottom <= n.top + 4 && r.left >= n.left - 40 && r.right <= n.right + 40 &&
         r.width >= 16 && r.width <= 96 && r.height >= 16 && r.height <= 96;
-    }) || null;
+    };
+    const scope = nav.parentElement || document;
+    const local = Array.from(scope.querySelectorAll('a, [role="link"]')).find(match);
+    if (local) return local;
+    return Array.from(document.querySelectorAll('a, [role="link"]')).find(match) || null;
   }
 
   // Pins the buttons to the panel's right end, centred on the logo (or just above
   // the nav when no logo is found). Does nothing while X's nav is absent, so the
   // safety-net position stays in place until the nav shows.
   // Places the pair at a button size, then shows it.
-  function show(size, left, top) {
+  function show(size, left, top, gap = PAIR_GAP) {
     toolsEl.style.setProperty("--rail-size", `${Math.round(size)}px`);
+    toolsEl.style.setProperty("--rail-gap", `${gap}px`);
     toolsEl.style.top = `${Math.round(top)}px`;
     toolsEl.style.left = `${Math.round(left)}px`;
     toolsEl.classList.add("is-placed");
@@ -284,15 +327,17 @@
     const gap = logoGlyph && firstGlyph && logoGlyph.height > 0 && firstGlyph.height > 0
       ? firstGlyph.top - logoGlyph.bottom
       : 0;
-    const size = Math.min(PAIR_SIZE, Math.floor(gap) - 4);
+    const iconGap = 2;
+    const maxWidthPerBtn = Math.floor((navRect.width - iconGap * (RAIL_COUNT - 1)) / RAIL_COUNT);
+    const size = Math.min(PAIR_SIZE, Math.floor(gap) - 4, maxWidthPerBtn);
+    const width = size * RAIL_COUNT + iconGap * (RAIL_COUNT - 1);
     if (size < MIN_SIZE) {
       toolsEl.classList.remove("is-placed");
       return;
     }
-    const width = size * 2 + PAIR_GAP;
     const centred = (navRect.left + navRect.right) / 2 - width / 2;
     const pairLeft = Math.max(navRect.left, Math.min(centred, navRect.right - width));
-    show(size, pairLeft, logoGlyph.bottom + (gap - size) / 2);
+    show(size, pairLeft, logoGlyph.bottom + (gap - size) / 2, iconGap);
   }
 
   // Builds the buttons once; X can remove them on re-render, and they come back here.
@@ -300,8 +345,9 @@
     toolsEl = document.createElement("div");
     toolsEl.className = "xnow-rail-tools xnow-ui";
     brandEl = brandButton();
+    downloadEl = downloadControl();
     refreshEl = refreshControl();
-    toolsEl.append(brandEl, refreshEl);
+    toolsEl.append(brandEl, downloadEl, refreshEl);
     document.body.appendChild(toolsEl);
   }
 
@@ -376,7 +422,12 @@
     lastNav = primaryNav();
     if (lastNav) navSize.observe(lastNav);
     sync();
-    new MutationObserver(scheduleSync).observe(document.body, { childList: true, subtree: true });
+    // Only schedule a DOM check when the rail or nav actually detached; skips
+    // rAF + layout work during normal feed scrolling and tweet renders.
+    new MutationObserver(() => {
+      if (toolsEl?.isConnected && lastNav?.isConnected) return;
+      scheduleSync();
+    }).observe(document.body, { childList: true, subtree: true });
     viewportSize.observe(document.documentElement);
     window.addEventListener("resize", settle, { passive: true });
     setTimeout(safetyNet, SAFETY_MS);

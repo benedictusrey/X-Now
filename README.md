@@ -10,8 +10,8 @@
 </p>
 
 <p align="center">
-  <strong>Latest: v2.5.0</strong><br/>
-  <em>Settings panel · Quiet hours · unmuted videos while X-Now is active · Refresh beside the logo · sign-in windows that close themselves</em>
+  <strong>Latest: v2.6.0</strong><br/>
+  <em>Native X-Now Downloader (left of Refresh feed) · image zoom slider & shortcuts · .jpg/.png/.mp4/.gif/.m4a & Full Post Bundle · Linux Wayland stability & performance tuning</em>
 </p>
 
 <p align="center">
@@ -20,7 +20,7 @@
   <img alt="Linux" src="https://img.shields.io/badge/platform-Linux-FCC624?style=flat-square&logo=linux&logoColor=black">
   <img alt="Rust and Tauri 2" src="https://img.shields.io/badge/built%20with-Rust%20%2B%20Tauri%202-24C8DB?style=flat-square&logo=tauri&logoColor=white">
   <img alt="WebView2" src="https://img.shields.io/badge/rendering-WebView2%20%2F%20WebKit-0078D4?style=flat-square&logo=microsoftedge&logoColor=white">
-  <img alt="Version 2.5.0" src="https://img.shields.io/badge/version-2.5.0-1D9BF0?style=flat-square">
+  <img alt="Version 2.6.0" src="https://img.shields.io/badge/version-2.6.0-1D9BF0?style=flat-square">
   <a href="https://github.com/benedictusrey"><img src="https://img.shields.io/badge/author-%40benedictusrey-black?style=flat-square&logo=github"/></a>
 </p>
 
@@ -38,52 +38,39 @@ X-Now puts X in its own window. It closes to the tray, pauses video and mutes so
 
 ---
 
-## Download v2.5.0
+## Download v2.6.0
 
-Get the installer for your system from the **[v2.5.0 release page](https://github.com/benedictusrey/X-Now/releases/tag/v2.5.0)**. The file list and verification steps are in [docs/releases/X-Now_v2.5.0.md](docs/releases/X-Now_v2.5.0.md).
+Get the installer for your system from the **[v2.6.0 release page](https://github.com/benedictusrey/X-Now/releases/tag/v2.6.0)**. The file list and verification steps are in [docs/releases/X-Now_v2.6.0.md](docs/releases/X-Now_v2.6.0.md).
 
 | System | File |
 |---|---|
-| **Windows 10/11, 64-bit** | `X-Now_2.5.0_windows_x64-setup.exe` (recommended) |
-| Windows, no install | `X-Now_2.5.0_windows_x64-portable.exe` |
-| Windows, MSI package | `X-Now_2.5.0_windows_x64_en-US.msi` |
-| **macOS 11+** (Apple Silicon and Intel) | `X-Now_2.5.0_universal.dmg` |
-| **Linux, most distributions** | `X-Now_2.5.0_amd64.AppImage` |
-| Debian, Ubuntu | `X-Now_2.5.0_amd64.deb` |
-| Fedora, RHEL, openSUSE | `X-Now_2.5.0_x86_64.rpm` |
+| **Windows 10/11, 64-bit** | `X-Now_2.6.0_windows_x64-setup.exe` (recommended) |
+| Windows, no install | `X-Now_2.6.0_windows_x64-portable.exe` |
+| Windows, MSI package | `X-Now_2.6.0_windows_x64_en-US.msi` |
+| **macOS 11+** (Apple Silicon and Intel) | `X-Now_2.6.0_universal.dmg` |
+| **Linux, most distributions** | `X-Now_2.6.0_amd64.AppImage` |
+| Debian, Ubuntu | `X-Now_2.6.0_amd64.deb` |
+| Fedora, RHEL, openSUSE | `X-Now_2.6.0_x86_64.rpm` |
 
 Every release includes `SHA256SUMS.txt`. Check your download against it before you install. The packages are unsigned, so Windows SmartScreen and macOS Gatekeeper may show a warning.
 
 ---
 
-## What changed: v2.5.0 vs v2.1.0
+## What changed: v2.6.0 vs v2.5.0
 
-v2.1.0 is the last release before v2.5.0. The table compares the two.
+v2.5.0 is the previous release (older v2.5.0 vs v2.1.0 notes remain in [docs/releases/X-Now_v2.5.0-record.md](docs/releases/X-Now_v2.5.0-record.md)).
 
-| Area | v2.1.0 | v2.5.0 |
+| Area | v2.5.0 | v2.6.0 |
 |---|---|---|
-| **Settings** | Tray only: Always on top, Launch on Startup, zoom | A Settings sheet, opened from the X-Now button beside the logo or from the tray. Saved to `settings.json` |
-| **Refresh** | Tray ▸ Window ▸ Refresh reloads the whole page: playing media stops and the scroll position is lost | Button beside the logo loads new posts in place. Playing media and scroll position stay |
-| **Feed video sound** | Muted until you click a video, on every launch and reload | Unmuted while X-Now is focused (on by default). Turn it off to keep X's muted default |
-| **Video volume** | Fixed: 20% for feed videos, 50% for opened videos | Same defaults, adjustable in Settings |
-| **Quiet hours** | Not available | Off, Nights (23:00 to 07:00), or a custom window. Pauses and mutes video and blocks autoplay |
-| **Saved media** | Saved to `Downloads\X-Now`, with no list | The last 50 saves are listed in Settings, each with *Show in folder* |
-| **Google and Apple sign-in** | In-app popups. The app sometimes closed them too early, or never opened them | Popups are matched by exact host and close when sign-in completes. A blank popup closes after 15 s |
-| **Minimize and hide** | Video pauses and the Windows audio session is muted | Same, and both are switchable (*Pause video*, *Mute sound*). X-Now's own audio session is no longer left muted in the foreground |
-| **Scroll flashes and bleaching** | Video mount guard, theme-adaptive background, overlay and occlusion switches | Same switches. The mount guard also handles the stale frame of recycled video players, which closes the last known black-gap window |
-| **Zoom** | Native zoom, reset on restart | Native zoom, saved and restored on launch |
-| **Theme** | Background follows X's theme automatically | Also available in Settings › Display, which switches X's Background (Default or Lights out) |
-| **Motion and layout** | Not available | Motion (System, Reduce, Full). Focus layout hides trends and promo cards in X's right column |
-| **Tray** | Navigate, Window, View, Tools, How to | Adds a Settings submenu, Quiet hours, Refresh feed and Open saved media folder |
-| **Autoplay** | WebView2 default policy | `--autoplay-policy=no-user-gesture-required` on every X-Now page, sign-in windows included. The unmute setting needs it |
-| **Automated checks** | 22 Rust tests, 88 JavaScript assertions | 41 Rust tests, 94 + 80 JavaScript and UI assertions, and a 172-check live Settings suite on Windows |
-| **Release build** | Starts on every `v*` tag push | Manual run only. A tag push does not start a build, because macOS minutes cost 10× Linux |
-| **Packages** | Windows setup, MSI and portable; macOS universal DMG; Linux AppImage, deb and rpm | The same set, plus `SHA256SUMS.txt` |
-| **Binary size** | 7.1 MB | 7.3 MB |
+| **Downloader** | Right-click save or external Cobalt fallback only | Native **X-Now Downloader** window (`Ctrl/Cmd+Shift+D`, context menu, tray **Tools**, and top-left rail button left of **Refresh feed**) |
+| **Media formats** | Direct image save and progressive MP4 only | Compatible `JPG`/`PNG` (`?format=jpg|png&name=orig`), MP4/HLS (`aac_adtstoasc` + `+faststart`), looped `.gif` & `.m4a` extraction (via `ffmpeg`), editable `.txt`, and **Full Post Bundle** (`post.txt` + `metadata.json` + all media) |
+| **Image Zoom Viewer** | Opens X's native lightbox | Built-in `10%–400%` zoom viewer (`Ctrl/Cmd+click` or *View / Zoom image*) with slider, drag-to-pan, mouse wheel, and keyboard shortcuts (`+`/`−`, `0`/`F` fit, `1` 1:1, arrows, `S`, `Esc`), plus `100%–400%` preview zoom in Downloader |
+| **Linux Wayland & WebKitGTK** | Occasional black/frozen `<video>` playback, OAuth popup `SIGABRT` or blank white GTK popups, missing AppImage GStreamer plugins | Guarded DMA-BUF/GStreamer/compositing Wayland env, AppImage `bundleMediaFramework: true` + GStreamer deps, internal OAuth frame pass-through, and clean in-app sign-in routing without broken blank GTK popups |
+| **Performance & memory** | Per-mutation observer array scans, `O(N·D)` audio tree walks, always-on timers, WebView2 suspend race | Single filtered DOM observer, suspended hidden timers/theme probes, `O(N)` audio BFS + closed Windows snapshot handles, sequenced `pause -> TrySuspend()`, and cross-filesystem safe temp writes |
+| **Accessibility & UI** | `#71767b` muted text on dark overlays, static backdrop blur | WCAG AA `#8b98a5` contrast across Downloader & overlays, native macOS/Linux font stacks, range/rail `:focus-visible`, keyboard theme radiogroup, and touch/pointer-capture cleanup |
+| **Automated checks** | 41 Rust tests, 94 + 80 JS/UI assertions | **50 Rust tests** (45 on Linux), **106 helpers**, **82 UI**, and **30 Downloader** JS assertions |
 
-Also fixed in v2.5.0: the Task Manager icon was blank. The window now sets its large icon. Details are in the [v2.5.0 record](docs/releases/X-Now_v2.5.0-record.md).
-
-**Known limits in v2.5.0:** packages are unsigned; the unmute setting relies on an autoplay switch that applies to every X-Now page; Focus layout depends on X's current page layout; there is no Windows ARM64 build.
+**Known limits in v2.6.0:** packages are unsigned; `.m4a` audio extraction, `.m3u8` HLS remuxing, and `.mp4` → `.gif` conversion require `ffmpeg` on `PATH`; there is no Windows ARM64 build.
 
 ---
 
@@ -91,10 +78,10 @@ Also fixed in v2.5.0: the Task Manager icon was blank. The window now sets its l
 
 - **Close to tray:** the ✕ button hides X-Now to the tray. Click the tray icon to bring it back.
 - **Pause and mute when hidden:** video and audio pause, and sound mutes, when the window is minimized or hidden. Both are optional in Settings.
-- **Tray menu:** Navigate, Window, View, Tools and How to submenus, zoom, always on top, launch on startup, and memory compaction.
-- **Save media:** right-click an image or a video to save it to `Downloads\X-Now`.
-- **External links:** clicking a link to another site opens it in your default browser.
-- **Sign-in:** Google and Apple sign-in windows stay inside the app and close themselves after sign-in.
+- **Native X-Now Downloader:** inspect any X/Twitter post URL or ID (`Ctrl/Cmd+Shift+D`, the rail button left of **Refresh feed**, right-click menu, or tray **Tools**) to save compatible `.jpg`/`.png` photos, HD `.mp4` videos, `.gif` animations, `.m4a` audio, or Full Post Bundles.
+- **Image zoom slider & shortcuts:** `Ctrl/Cmd+click` (or right-click → *View / Zoom image*) opens a `10%–400%` zoom viewer with drag-to-pan and keyboard shortcuts (`+`/`−`, `0`/`F`, `1`, arrows, `S`, `Esc`).
+- **Tray menu:** Navigate, Settings, View, Tools, and How to submenus, zoom, always on top, launch on startup, and site cache clearing.
+- **External links & sign-in:** external links open in your default browser; Apple/Google embedded sign-in frames load safely while already-signed-in sessions suppress redundant OAuth popups.
 - **Settings:** see the table below.
 
 ---
@@ -140,7 +127,7 @@ Open Settings with the X-Now button beside X's logo, or from the tray.
 
 ### Linux
 
-1. For the AppImage, run `chmod +x X-Now_2.5.0_amd64.AppImage`, then run it. For the `.deb` or `.rpm`, use your package installer.
+1. For the AppImage, run `chmod +x X-Now_2.6.0_amd64.AppImage`, then run it. For the `.deb` or `.rpm`, use your package installer.
 2. You need the WebKitGTK 4.1 runtime. On Debian and Ubuntu, install `libwebkit2gtk-4.1-0`.
 3. Sign in on X's page inside the app.
 
@@ -161,9 +148,9 @@ X-Now does not add its own player controls. Play, mute, fullscreen, captions and
 
 ## Saving Media
 
-- **Images:** right-click an image and choose **Save image**. X-Now saves the full-resolution original to `%USERPROFILE%\Downloads\X-Now`. On macOS and Linux, it uses the Downloads folder for your user.
-- **Videos:** right-click a video and choose **Save video**. X-Now saves the clicked post's video as MP4 when X exposes it. When X exposes only a streamed link, X-Now copies the post link and opens [Cobalt](https://cobalt.tools/) in your browser, with `Downloads\X-Now` ready for the file.
-- **Progress:** a card at the bottom-right shows the download, then **Saved ✓** with the folder, or the reason it failed.
+- **X-Now Downloader:** click the **Downloader** icon on the top-left rail (directly left of **Refresh feed**), press `Ctrl/Cmd+Shift+D`, choose *Open in X-Now Downloader* from the media context menu, or pick *X-Now Downloader…* in the tray **Tools** menu. Save compatible `JPG` or `PNG` photos, HD `.mp4` / HLS streams, looped `.gif` animations, `.m4a` audio tracks, edited post text (`.txt`), or a **Full Post Bundle** (`post.txt` + `metadata.json` + all media) to `Downloads\X-Now`.
+- **Quick save & zoom:** right-click an image or video for instant save, or `Ctrl/Cmd+click` (*View / Zoom image*) to open the `10%–400%` zoom viewer (`+`/`−`, `0`/`F`, `1`, arrows, `S`, `Esc`).
+- **Progress & fallback:** a toast shows save progress, and if X exposes only a streamed link without direct access, the optional Cobalt hand-off remains available in your default browser.
 - **History:** Settings lists the last 50 saves, each with *Show in folder*.
 
 X-Now downloads only the media URLs that X's pages expose. It does not bypass X's access controls. Media rights belong to the author of the post.
@@ -186,7 +173,7 @@ Install [Node.js](https://nodejs.org/), [Rust](https://rustup.rs/), and run thes
 
 ```sh
 npm install                 # once: jsdom and playwright-core for the test harnesses
-npm run test:all            # Rust tests, contract harness (94), UI harness (80)
+npm run test:all            # Rust tests (50), helpers (106), UI (82), Downloader (30)
 
 cd src-tauri && cargo fmt --all -- --check && cargo check && cd ..
 npx --yes @tauri-apps/cli@2.11.5 build --bundles nsis,msi   # add --no-bundle for the exe only
@@ -229,11 +216,12 @@ Each launch logs the WebView2 configuration:
 
 | Document | What you'll find |
 |---|---|
-| [docs/releases/X-Now_v2.5.0.md](docs/releases/X-Now_v2.5.0.md) | v2.5.0 downloads, what's new and known limits |
+| [docs/releases/X-Now_v2.6.0.md](docs/releases/X-Now_v2.6.0.md) | v2.6.0 downloads, what's new, requirements, and known limits |
+| [docs/releases/X-Now_v2.5.0.md](docs/releases/X-Now_v2.5.0.md) | v2.5.0 downloads and release summary |
 | [docs/releases/X-Now_v2.5.0-record.md](docs/releases/X-Now_v2.5.0-record.md) | Full v2.5.0 record: sign-in, audio, Settings, release workflow, verification |
 | [RELEASE_NOTES.md](RELEASE_NOTES.md) | Short release notes for each version |
 | [CHANGELOG.md](CHANGELOG.md) | Version history, one entry per release |
-| [SECURITY.md](SECURITY.md) | Supported versions, security and privacy guarantees |
+| [SECURITY.md](SECURITY.md) | Supported versions, capabilities, security and privacy guarantees |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Project layout, invariants, and the pull request steps |
 | [docs/RELEASE_PIPELINE.md](docs/RELEASE_PIPELINE.md) | Release workflow, asset names and release steps |
 | [docs/BUILD_AND_FIXES.md](docs/BUILD_AND_FIXES.md) | Rendering, window and audio fixes, with bisect flags. Read it before changing `lib.rs`, `tray.rs` or `frontend/x-tools.js` |

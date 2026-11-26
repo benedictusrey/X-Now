@@ -14,9 +14,9 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: 'Release tag, e.g. v2.5.0. Must equal the version in all four manifests.'
+        description: 'Release tag, e.g. v2.6.0. Must equal the version in all four manifests.'
         required: true
-        default: 'v2.5.0'
+        default: 'v2.6.0'
         type: string
       publish_release:
         description: 'Create a DRAFT GitHub Release with the verified assets'
@@ -114,6 +114,8 @@ jobs:
           sudo apt-get install -y \
             build-essential curl wget file libssl-dev libxdo-dev \
             libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
+            libgstreamer-plugins-base1.0-dev gstreamer1.0-plugins-base \
+            gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-libav \
             patchelf rpm libfuse2
 
       - name: Install Tauri CLI

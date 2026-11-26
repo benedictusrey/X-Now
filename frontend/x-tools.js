@@ -28,7 +28,9 @@
     toast: null,
     progress: null,
     activeVideo: null,
-    videoAudioUnlocked: false
+    viewer: null,
+    videoAudioUnlocked: false,
+    tweetCache: new Map()
   };
 
   const style = document.createElement("style");
@@ -40,8 +42,10 @@
       --xnow-raised: #16181c;
       --xnow-border: #2f3336;
       --xnow-text: #e7e9ea;
-      --xnow-muted: #71767b;
+      --xnow-muted: #8b98a5;
       --xnow-accent: #1d9bf0;
+      --xnow-accent-ink: #ffffff;
+      --xnow-knob: #ffffff;
       --xnow-danger: #f4212e;
       --xnow-success: #00ba7c;
       --xnow-hover: rgba(231, 233, 234, 0.1);
@@ -81,6 +85,126 @@
       outline-offset: 2px;
     }
 
+    .xnow-media-viewer {
+      position: fixed;
+      inset: 0;
+      z-index: 2147483646;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      background: rgba(0, 0, 0, 0.88);
+      font: 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+
+    .xnow-media-viewer__panel {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      width: min(96vw, 1180px);
+      height: min(94vh, 920px);
+      overflow: hidden;
+      border: 1px solid var(--xnow-border);
+      border-radius: var(--xnow-radius-lg);
+      background: var(--xnow-bg);
+      color: var(--xnow-text);
+      box-shadow: var(--xnow-shadow);
+      animation: xnow-pop 140ms var(--xnow-ease);
+    }
+
+    .xnow-media-viewer__toolbar {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+      min-height: 52px;
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--xnow-border);
+      background: var(--xnow-raised);
+      color: var(--xnow-text);
+    }
+
+    .xnow-media-viewer__toolbar button,
+    .xnow-media-viewer__toolbar input {
+      accent-color: var(--xnow-accent);
+    }
+
+    .xnow-media-viewer__toolbar button {
+      min-width: 32px;
+      height: 32px;
+      padding: 0 10px;
+      border: 1px solid var(--xnow-border);
+      border-radius: var(--xnow-radius-sm);
+      background: transparent;
+      color: var(--xnow-text);
+      font: 500 12.5px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      cursor: pointer;
+      transition: background-color 120ms var(--xnow-ease);
+    }
+
+    .xnow-media-viewer__toolbar button:hover {
+      background: var(--xnow-accent-soft);
+    }
+
+    .xnow-media-viewer__toolbar button.is-primary {
+      background: var(--xnow-accent);
+      border-color: var(--xnow-accent);
+      color: var(--xnow-accent-ink);
+      font-weight: 600;
+    }
+
+    .xnow-media-viewer__toolbar .xnow-media-viewer__close {
+      margin-left: auto;
+      font-size: 18px;
+      padding: 0 10px;
+    }
+
+    .xnow-media-viewer__zoom {
+      width: 170px;
+      cursor: pointer;
+    }
+
+    .xnow-media-viewer__zoom-label {
+      min-width: 44px;
+      color: var(--xnow-sub);
+      text-align: right;
+      font-size: 12px;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .xnow-media-viewer__hint {
+      color: var(--xnow-muted);
+      font-size: 11.5px;
+      white-space: nowrap;
+    }
+
+    .xnow-media-viewer__viewport {
+      position: relative;
+      flex: 1;
+      min-height: 0;
+      overflow: hidden;
+      cursor: grab;
+      touch-action: none;
+      user-select: none;
+      background: var(--xnow-bg);
+    }
+
+    .xnow-media-viewer__viewport:active {
+      cursor: grabbing;
+    }
+
+    .xnow-media-viewer__image {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      max-width: none;
+      max-height: none;
+      transform-origin: center center;
+      user-select: none;
+      pointer-events: none;
+    }
+
     .xnow-media-menu {
       position: fixed;
       z-index: 2147483647;
@@ -91,7 +215,7 @@
       background: var(--xnow-raised);
       color: var(--xnow-text);
       box-shadow: var(--xnow-shadow);
-      font: 13px "Segoe UI", Arial, sans-serif;
+      font: 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       transform-origin: top left;
       animation: xnow-pop 120ms var(--xnow-ease);
     }
@@ -137,7 +261,7 @@
       border-radius: var(--xnow-radius-md);
       background: var(--xnow-raised);
       box-shadow: var(--xnow-shadow);
-      font: 13px "Segoe UI", Arial, sans-serif;
+      font: 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       color: var(--xnow-text);
       animation: xnow-toast-in 220ms var(--xnow-ease);
       pointer-events: auto;
@@ -190,7 +314,8 @@
     /* Reduce motion: the OS preference, or the Settings "Motion" choice.
        "full" opts back in to animation even when the OS asks for less. */
     html[data-xnow-motion="reduce"] .xnow-toast,
-    html[data-xnow-motion="reduce"] .xnow-media-menu {
+    html[data-xnow-motion="reduce"] .xnow-media-menu,
+    html[data-xnow-motion="reduce"] .xnow-media-viewer__panel {
       animation: none !important;
       transition: none !important;
     }
@@ -301,7 +426,7 @@
     return (hasPostContext || (rect.width >= 260 && rect.height >= 260))
       && rect.width >= 120
       && rect.height >= 120
-      && !image.closest("header, nav, aside");
+      && !image.closest("header, nav, aside, .xnow-media-viewer");
   }
 
   function isPostVideo(video) {
@@ -311,7 +436,7 @@
     return (hasPostContext || (rect.width >= 260 && rect.height >= 260))
       && rect.width >= 120
       && rect.height >= 120
-      && !video.closest("header, nav, aside");
+      && !video.closest("header, nav, aside, .xnow-media-viewer");
   }
 
   function mediaFromTarget(target) {
@@ -502,7 +627,20 @@
     }
   }
 
+  function mountGuardCleanup(video) {
+    if (!video) return;
+    if (video.__xnowGuardTimer) {
+      window.clearTimeout(video.__xnowGuardTimer);
+      video.__xnowGuardTimer = 0;
+    }
+    if (video.__xnowGuardAbort) {
+      video.__xnowGuardAbort.abort();
+      video.__xnowGuardAbort = null;
+    }
+  }
+
   function mountGuardReleaseTree(video) {
+    mountGuardCleanup(video);
     mountGuardRelease(video);
     const host = video && video.__xnowGuardHost;
     if (host) {
@@ -520,62 +658,52 @@
     // black-gap at recycled-player swaps (live A/B, confirm-run1 frames
     // 268-270). Forced marks bypass the stale-frame check.
     if (!force && video.readyState >= 2) return; // a frame is already decodable
-    if (video.getAttribute(MOUNT_GUARD_ATTR) !== null) return;
-    video.setAttribute(MOUNT_GUARD_ATTR, "1");
-    mountGuardStats.marked++;
+    if (video.getAttribute(MOUNT_GUARD_ATTR) !== null && !force) return;
+    // Cancel any prior arm's timeout/listeners so an old timer from a previous
+    // post cannot prematurely unhide this recycled element mid-load.
+    mountGuardCleanup(video);
+    const gen = (video.__xnowGuardGen || 0) + 1;
+    video.__xnowGuardGen = gen;
+    if (video.getAttribute(MOUNT_GUARD_ATTR) === null) {
+      video.setAttribute(MOUNT_GUARD_ATTR, "1");
+      mountGuardStats.marked++;
+    }
     // The video element is often transparent; the black rectangle users see
     // is the player wrapper behind it. Hide the nearest ancestor whose own
     // computed background is a solid dark surface (transparent ancestors are
     // skipped — in dark theme the card is dark anyway and hiding is a no-op).
-    try {
-      let node = video.parentElement;
-      for (let depth = 0; node && depth < 4; depth++, node = node.parentElement) {
-        const bg = getComputedStyle(node).backgroundColor;
-        if (isDarkSurface(bg)) {
-          node.setAttribute(MOUNT_GUARD_ATTR, "1");
-          video.__xnowGuardHost = node;
-          break;
+    if (!video.__xnowGuardHost) {
+      try {
+        let node = video.parentElement;
+        for (let depth = 0; node && depth < 4; depth++, node = node.parentElement) {
+          const bg = getComputedStyle(node).backgroundColor;
+          if (isDarkSurface(bg)) {
+            node.setAttribute(MOUNT_GUARD_ATTR, "1");
+            video.__xnowGuardHost = node;
+            break;
+          }
         }
-      }
-    } catch (_) { /* getComputedStyle unavailable — element-level guard still on */ }
-    const release = () => mountGuardReleaseTree(video);
-    video.addEventListener("loadeddata", release, { once: true });
-    video.addEventListener("canplay", release, { once: true });
-    video.addEventListener("playing", release, { once: true });
-    window.setTimeout(release, MOUNT_GUARD_TIMEOUT_MS);
+      } catch (_) { /* getComputedStyle unavailable — element-level guard still on */ }
+    }
+    const release = () => {
+      if (video.__xnowGuardGen !== gen) return;
+      mountGuardReleaseTree(video);
+    };
+    const ac = typeof AbortController === "function" ? new AbortController() : null;
+    video.__xnowGuardAbort = ac;
+    const opts = ac ? { once: true, signal: ac.signal } : { once: true };
+    video.addEventListener("loadeddata", release, opts);
+    video.addEventListener("canplay", release, opts);
+    video.addEventListener("playing", release, opts);
+    video.__xnowGuardTimer = window.setTimeout(release, MOUNT_GUARD_TIMEOUT_MS);
   }
 
   function mountGuardSweep(root) {
     (root || document).querySelectorAll("video").forEach(mountGuardMark);
   }
 
-  // Catch fresh player mounts (childList). Source swaps on recycled players
-  // are caught separately by the loadstart/emptied listeners below — X's
-  // virtualized feed REUSES the same <video> node across posts, so scroll
-  // transitions are attribute swaps, not insertions.
-  const mountGuardMO = new MutationObserver((muts) => {
-    for (const m of muts) {
-      if (m.type === "childList") {
-        m.addedNodes.forEach((n) => {
-          if (n instanceof HTMLVideoElement) mountGuardMark(n);
-          else if (n instanceof Element) {
-            if (n.tagName === "VIDEO") mountGuardMark(n);
-            else n.querySelectorAll && n.querySelectorAll("video").forEach(mountGuardMark);
-          }
-        });
-      }
-    }
-  });
-  const mountGuardRoot = document.body || document.documentElement;
-  if (mountGuardRoot) {
-    mountGuardMO.observe(mountGuardRoot, { childList: true, subtree: true });
-    mountGuardSweep(document);
-  }
-  // loadstart/emptied fire on recycled virtualized players when X swaps the
-  // post's media source. Chromium may still report the old stream's
-  // readyState here, so these re-arms FORCE the mark (bypass the gate):
-  // the element is about to tear down to frameless and paint its black
-  // chrome — exactly the flash class the guard exists to prevent.
+  // Source swaps on recycled players are caught by loadstart/emptied; fresh
+  // mounts are handled in the unified MutationObserver in observeVideoChanges.
   ["loadstart", "emptied"].forEach((type) => {
     document.addEventListener(type, (ev) => {
       if (ev.target instanceof HTMLVideoElement) mountGuardMark(ev.target, { force: true });
@@ -694,8 +822,9 @@
   function scopedVideoResources(media) {
     const id = videoIdFromPoster(media);
     if (!id) return []; // never page-wide for videos — attribution impossible
+    const needle = `/${id}/`;
     const all = mediaUrlsFromResources(media);
-    const scoped = all.filter(url => new RegExp(`/${id}/`).test(url));
+    const scoped = all.filter(url => url.includes(needle));
     return scoped.length ? scoped : [];
   }
 
@@ -719,10 +848,13 @@
       const parsed = new URL(url);
       if (!/(?:pbs|video)\.twimg\.com\//i.test(parsed.hostname + parsed.pathname)) return [];
       const base = `${parsed.origin}${parsed.pathname}`;
-      const format = parsed.searchParams.get("format") || "jpg";
+      const rawFmt = (parsed.searchParams.get("format") || "jpg").toLowerCase();
+      // Prefer JPG over WebP for universal image viewer/editor compatibility,
+      // while preserving lossless PNG when X serves PNG.
+      const compatFmt = rawFmt === "webp" || rawFmt === "jpeg" ? "jpg" : rawFmt;
       const variants = [
-        `${base}?format=${format}&name=orig`,
-        `${base}?format=${format}&name=large`
+        `${base}?format=${compatFmt}&name=orig`,
+        `${base}?format=${compatFmt}&name=large`
       ];
       return variants.filter(variant => variant !== url);
     } catch (error) {
@@ -764,7 +896,7 @@
       const candidates = [...metaUrls, ...textUrls].filter(url =>
         isUsableMediaUrl(url)
         && (/video\.twimg\.com\//i.test(url)
-          || (/pbs\.twimg\.com\//i.test(url) && /\.(?:jpe?g|png|webp|avif)(?:[?#]|$)/i.test(url))
+          || (/pbs\.twimg\.com\//i.test(url) && (/\.(?:jpe?g|png|webp|avif)(?:[?#]|$)/i.test(url) || /\/media\//i.test(url)))
           || /\.mp4(?:[?#]|$)/i.test(url)));
       return Array.from(new Set(candidates));
     } catch (error) {
@@ -773,29 +905,32 @@
     }
   }
 
-  async function mediaUrlCandidates(media) {
+  async function mediaUrlCandidates(media, { includePostFetch = true } = {}) {
     const directUrl = sourceUrl(media);
     const candidates = [];
     const addCandidate = url => {
       if (!url || candidates.includes(url)) return;
       candidates.push(url);
     };
+    const directIsUsable = isUsableMediaUrl(directUrl);
     // Order: element/variant URLs, then POST-SCOPED candidates (the clicked
     // post page's video/image URLs — never a neighbour), then for videos only
     // the resources scoped to the clicked element via its poster's media ID.
-    // Page-wide resource entries are NEVER used for videos: they cannot be
-    // attributed to the clicked post, so they only ever produced the wrong
-    // video (e.g. X's always-ready login-card animation). A blob-only video
-    // with no resolvable URL falls through to the Cobalt hand-off instead.
+    // Skip fetching the full post HTML when the element already exposes a
+    // direct https:// media URL (fallback fetches it only if direct saves fail).
     if (media instanceof HTMLImageElement) {
       resolutionVariants(directUrl).forEach(addCandidate);
       addCandidate(directUrl);
-      (await mediaUrlsFromPost(postUrlForMedia(media))).forEach(addCandidate);
+      if (includePostFetch && !directIsUsable) {
+        (await mediaUrlsFromPost(postUrlForMedia(media))).forEach(addCandidate);
+      }
       mediaUrlsFromResources(media).forEach(addCandidate);
     } else {
       addCandidate(directUrl);
       resolutionVariants(directUrl).forEach(addCandidate);
-      (await mediaUrlsFromPost(postUrlForMedia(media))).forEach(addCandidate);
+      if (includePostFetch && !directIsUsable) {
+        (await mediaUrlsFromPost(postUrlForMedia(media))).forEach(addCandidate);
+      }
       scopedVideoResources(media).forEach(addCandidate);
     }
     return candidates.filter(isUsableMediaUrl);
@@ -989,11 +1124,56 @@
     // "Downloading…" card (bottom-right, spinner, stays until done).
     renderToast({ title: `Downloading ${kind}…`, sub: "Please wait", kind: "spinner", sticky: true });
 
-    const sources = await mediaUrlCandidates(media);
+    let sources = await mediaUrlCandidates(media);
+    // If direct/variant URLs fail, fetch the post page as a second pass.
+    const trySources = async list => {
+      let lastErr = "";
+      for (const source of list) {
+        if (hasNativeBridge()) {
+          try {
+            const savedPath = await nativeInvoke("download_media", {
+              url: source,
+              mediaType: kind,
+              referer
+            });
+            logSaveDiagnostics(kind, source, list, postUrl);
+            showSavedToast(kind, savedPath);
+            return { ok: true, error: "" };
+          } catch (error) {
+            lastErr = String(error?.message || error);
+            console.warn("X-Now native URL media download failed; trying the next source:", error);
+          }
+        }
+        try {
+          const savedPath = await downloadFromSignedInPage(source, kind);
+          logSaveDiagnostics(kind, source, list, postUrl);
+          showSavedToast(kind, savedPath);
+          return { ok: true, error: "" };
+        } catch (error) {
+          lastErr = String(error?.message || error);
+          console.warn("X-Now signed-in media save failed; trying the next source:", error);
+        }
+      }
+      return { ok: false, error: lastErr };
+    };
+
     console.warn("[X-Now] saveMedia candidates:", sources);
+    let outcome = sources.length ? await trySources(sources) : { ok: false, error: "" };
+    if (outcome.ok) return;
+
+    if (isUsableMediaUrl(sourceUrl(media))) {
+      const postFallback = (await mediaUrlsFromPost(postUrl)).filter(
+        u => isUsableMediaUrl(u) && !sources.includes(u)
+      );
+      if (postFallback.length) {
+        sources = [...sources, ...postFallback];
+        outcome = await trySources(postFallback);
+        if (outcome.ok) return;
+      }
+    }
+
     if (!sources.length) {
-      // No direct URL at all (e.g. blob-only MSE streams) — the IG-Now method
-      // still gets the video: copy the post link + open Cobalt.
+      // No direct URL at all (e.g. blob-only MSE streams) — hand off to Downloader or Cobalt.
       if (kind === "video") {
         await handOffVideo(media);
         return;
@@ -1002,40 +1182,12 @@
       return;
     }
 
-    let lastError = "";
-    for (const source of sources) {
-      if (hasNativeBridge()) {
-        try {
-          const savedPath = await nativeInvoke("download_media", {
-            url: source,
-            mediaType: kind,
-            referer
-          });
-          logSaveDiagnostics(kind, source, sources, postUrl);
-          showSavedToast(kind, savedPath);
-          return;
-        } catch (error) {
-          lastError = String(error?.message || error);
-          console.warn("X-Now native URL media download failed; trying the next source:", error);
-        }
-      }
-      try {
-        const savedPath = await downloadFromSignedInPage(source, kind);
-        logSaveDiagnostics(kind, source, sources, postUrl);
-        showSavedToast(kind, savedPath);
-        return;
-      } catch (error) {
-        lastError = String(error?.message || error);
-        console.warn("X-Now signed-in media save failed; trying the next source:", error);
-      }
-    }
-
     // Every direct path failed — hand the video off to Cobalt (IG-Now method).
     if (kind === "video") {
       await handOffVideo(media);
       return;
     }
-    const reason = lastError || "all methods failed";
+    const reason = outcome.error || "all methods failed";
     // Diagnostic channel: mirror the reason into the page title so the Rust
     // side logs it (XNOWERR: branch) — plus the user-visible toast.
     try {
@@ -1119,7 +1271,277 @@
   // scroll, resize and Escape.
   window.addEventListener("scroll", closeMenu, { capture: true, passive: true });
   window.addEventListener("resize", closeMenu, { passive: true });
+  // ── Built-in Image Viewer (Ctrl/Cmd+click or Context Menu) ───────────────
+  function updateViewerTransform() {
+    if (!state.viewer) return;
+    const { image, scale, offsetX, offsetY, zoomInput, zoomLabel } = state.viewer;
+    image.style.transform = `translate(calc(-50% + ${offsetX}px), calc(-50% + ${offsetY}px)) scale(${scale})`;
+    const pct = Math.round(scale * 100);
+    zoomInput.value = String(Math.max(10, Math.min(400, pct)));
+    zoomLabel.textContent = `${pct}%`;
+  }
+
+  function setViewerScale(nextScale) {
+    if (!state.viewer) return;
+    state.viewer.scale = Math.max(0.1, Math.min(4, Math.round(nextScale * 100) / 100));
+    updateViewerTransform();
+  }
+
+  function fitViewer() {
+    if (!state.viewer) return;
+    const { viewport, image } = state.viewer;
+    const vw = viewport.clientWidth || 0;
+    const vh = viewport.clientHeight || 0;
+    const nw = image.naturalWidth || 0;
+    const nh = image.naturalHeight || 0;
+    const fitScale = (vw > 24 && vh > 24 && nw > 0 && nh > 0)
+      ? Math.max(0.1, Math.min(1, (vw - 24) / nw, (vh - 24) / nh))
+      : 1;
+    state.viewer.fitScale = fitScale;
+    state.viewer.scale = fitScale;
+    state.viewer.offsetX = 0;
+    state.viewer.offsetY = 0;
+    updateViewerTransform();
+  }
+
+  function closeImageViewer() {
+    if (!state.viewer) return;
+    if (state.viewer.cleanup) state.viewer.cleanup();
+    state.viewer.overlay.remove();
+    state.viewer = null;
+  }
+
+  function showImageViewer(image) {
+    if (!(image instanceof HTMLImageElement)) return;
+    closeMenu();
+    closeImageViewer();
+
+    const overlay = document.createElement("div");
+    overlay.className = "xnow-media-viewer xnow-ui";
+    overlay.setAttribute("role", "dialog");
+    overlay.setAttribute("aria-modal", "true");
+    overlay.setAttribute("aria-label", "X-Now image viewer");
+
+    const panel = document.createElement("section");
+    panel.className = "xnow-media-viewer__panel";
+    const toolbar = document.createElement("div");
+    toolbar.className = "xnow-media-viewer__toolbar";
+
+    const saveButton = document.createElement("button");
+    saveButton.type = "button";
+    saveButton.className = "is-primary";
+    saveButton.textContent = "Save";
+    saveButton.addEventListener("click", () => saveMedia(image));
+
+    const dlButton = document.createElement("button");
+    dlButton.type = "button";
+    dlButton.textContent = "Downloader";
+    dlButton.addEventListener("click", () => {
+      closeImageViewer();
+      openNativeDownloader(postUrlForMedia(image), image);
+    });
+
+    const zoomOut = document.createElement("button");
+    zoomOut.type = "button";
+    zoomOut.textContent = "-";
+    zoomOut.setAttribute("aria-label", "Zoom out");
+    zoomOut.addEventListener("click", () => setViewerScale((state.viewer?.scale || 1) - 0.15));
+
+    const zoomInput = document.createElement("input");
+    zoomInput.className = "xnow-media-viewer__zoom";
+    zoomInput.type = "range";
+    zoomInput.min = "10";
+    zoomInput.max = "400";
+    zoomInput.step = "5";
+    zoomInput.value = "100";
+    zoomInput.setAttribute("aria-label", "Image zoom");
+    zoomInput.addEventListener("input", () => setViewerScale(Number(zoomInput.value) / 100));
+
+    const zoomLabel = document.createElement("span");
+    zoomLabel.className = "xnow-media-viewer__zoom-label";
+    zoomLabel.textContent = "100%";
+
+    const zoomIn = document.createElement("button");
+    zoomIn.type = "button";
+    zoomIn.textContent = "+";
+    zoomIn.setAttribute("aria-label", "Zoom in");
+    zoomIn.addEventListener("click", () => setViewerScale((state.viewer?.scale || 1) + 0.15));
+
+    const actualSize = document.createElement("button");
+    actualSize.type = "button";
+    actualSize.textContent = "1:1";
+    actualSize.title = "Actual size (1)";
+    actualSize.addEventListener("click", () => {
+      if (!state.viewer) return;
+      state.viewer.offsetX = 0;
+      state.viewer.offsetY = 0;
+      setViewerScale(1);
+    });
+
+    const reset = document.createElement("button");
+    reset.type = "button";
+    reset.textContent = "Fit";
+    reset.title = "Fit to window (0 or F)";
+    reset.addEventListener("click", fitViewer);
+
+    const hint = document.createElement("span");
+    hint.className = "xnow-media-viewer__hint";
+    hint.textContent = "+/− zoom · 0 fit · 1 100% · Esc close";
+
+    const close = document.createElement("button");
+    close.className = "xnow-media-viewer__close";
+    close.type = "button";
+    close.textContent = "\u00D7";
+    close.setAttribute("aria-label", "Close image viewer");
+    close.addEventListener("click", closeImageViewer);
+
+    toolbar.append(
+      saveButton, dlButton, zoomOut, zoomInput, zoomLabel, zoomIn, actualSize, reset, hint, close
+    );
+
+    const viewport = document.createElement("div");
+    viewport.className = "xnow-media-viewer__viewport";
+    const enlarged = document.createElement("img");
+    enlarged.className = "xnow-media-viewer__image";
+    const rawSrc = sourceUrl(image);
+    const highResSrc = resolutionVariants(rawSrc)[0] || rawSrc;
+    enlarged.src = highResSrc;
+    enlarged.alt = image.alt || "X post image";
+    enlarged.draggable = false;
+    if (highResSrc !== rawSrc && rawSrc) {
+      enlarged.addEventListener("error", () => {
+        if (enlarged.src !== rawSrc) enlarged.src = rawSrc;
+      }, { once: true });
+    }
+    viewport.appendChild(enlarged);
+    panel.append(toolbar, viewport);
+    overlay.appendChild(panel);
+    document.body.appendChild(overlay);
+
+    state.viewer = {
+      overlay,
+      viewport,
+      image: enlarged,
+      sourceImage: image,
+      zoomInput,
+      zoomLabel,
+      scale: 1,
+      fitScale: 1,
+      offsetX: 0,
+      offsetY: 0
+    };
+    updateViewerTransform();
+    enlarged.addEventListener("load", fitViewer, { once: true });
+    if (enlarged.complete && enlarged.naturalWidth > 0) fitViewer();
+
+    overlay.addEventListener("click", event => {
+      if (event.target === overlay) closeImageViewer();
+    });
+    viewport.addEventListener("wheel", event => {
+      event.preventDefault();
+      setViewerScale((state.viewer?.scale || 1) + (event.deltaY < 0 ? 0.15 : -0.15));
+    }, { passive: false });
+    viewport.addEventListener("dblclick", () => {
+      if (!state.viewer) return;
+      if (Math.abs(state.viewer.scale - state.viewer.fitScale) < 0.05) {
+        setViewerScale(Math.min(2, state.viewer.fitScale * 2));
+      } else {
+        fitViewer();
+      }
+    });
+
+    let dragging = false;
+    let startX = 0;
+    let startY = 0;
+    const endDrag = pointerId => {
+      if (!dragging) return;
+      dragging = false;
+      if (pointerId !== undefined) viewport.releasePointerCapture?.(pointerId);
+    };
+    viewport.addEventListener("pointerdown", event => {
+      if (event.button !== 0 || !state.viewer) return;
+      dragging = true;
+      startX = event.clientX - state.viewer.offsetX;
+      startY = event.clientY - state.viewer.offsetY;
+      viewport.setPointerCapture?.(event.pointerId);
+    });
+    viewport.addEventListener("pointermove", event => {
+      if (!dragging || !state.viewer) return;
+      state.viewer.offsetX = event.clientX - startX;
+      state.viewer.offsetY = event.clientY - startY;
+      updateViewerTransform();
+    });
+    viewport.addEventListener("pointerup", event => endDrag(event.pointerId));
+    viewport.addEventListener("pointercancel", event => endDrag(event.pointerId));
+    viewport.addEventListener("lostpointercapture", () => endDrag());
+    const onWindowBlur = () => endDrag();
+    window.addEventListener("blur", onWindowBlur);
+    state.viewer.cleanup = () => window.removeEventListener("blur", onWindowBlur);
+    close.focus({ preventScroll: true });
+  }
+
   document.addEventListener("keydown", event => {
+    if (state.viewer) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        closeImageViewer();
+        return;
+      }
+      const tag = document.activeElement?.tagName;
+      const inRange = tag === "INPUT" && document.activeElement?.type === "range";
+      if (tag !== "TEXTAREA" && tag !== "SELECT" && (tag !== "INPUT" || inRange)) {
+        if (event.key === "+" || event.key === "=" || event.code === "NumpadAdd") {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          setViewerScale((state.viewer.scale || 1) + 0.15);
+          return;
+        }
+        if (event.key === "-" || event.key === "_" || event.code === "NumpadSubtract") {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          setViewerScale((state.viewer.scale || 1) - 0.15);
+          return;
+        }
+        if (event.key === "0" || event.key === "f" || event.key === "F") {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          fitViewer();
+          return;
+        }
+        if (event.key === "1") {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          state.viewer.offsetX = 0;
+          state.viewer.offsetY = 0;
+          setViewerScale(1);
+          return;
+        }
+        if (event.key === "s" || event.key === "S") {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          saveMedia(state.viewer.sourceImage);
+          return;
+        }
+        const step = 48;
+        if (!inRange && ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          if (event.key === "ArrowLeft") state.viewer.offsetX += step;
+          if (event.key === "ArrowRight") state.viewer.offsetX -= step;
+          if (event.key === "ArrowUp") state.viewer.offsetY += step;
+          if (event.key === "ArrowDown") state.viewer.offsetY -= step;
+          updateViewerTransform();
+          return;
+        }
+      }
+    }
+    if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "d") {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      openNativeDownloader();
+      return;
+    }
     if (event.key === "Escape") closeMenu();
   }, true);
 
@@ -1145,9 +1567,19 @@
   }
 
   document.addEventListener("click", event => {
+    const targetEl = elementFromTarget(event.target);
+    if (targetEl?.closest?.(".xnow-media-viewer, .xnow-media-menu")) return;
+    if ((event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey) {
+      const media = mediaFromTarget(event.target) || mediaAtPoint(event.clientX, event.clientY);
+      if (media instanceof HTMLImageElement) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        showImageViewer(media);
+        return;
+      }
+    }
     if (event.button !== 0) return;
     if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
-    if (elementFromTarget(event.target)?.closest?.(".xnow-media-menu")) return;
     // Clicks on media elements belong to X's own player (play/pause, open the
     // post in-app) — never hand them off, even when an ad wraps the video in
     // an external click-through link.
@@ -1158,6 +1590,303 @@
     event.stopImmediatePropagation();
     openDefaultBrowser(link.href);
   }, true);
+
+  // ── X-Now Downloader integration (adapted from IG-Now) ───────────────────
+  function tweetIdFromUrl(url) {
+    const match = String(url || "").match(/\/status\/(\d{5,24})/i);
+    return match ? match[1] : "";
+  }
+
+  function syndicationToken(id) {
+    const num = Number(id);
+    if (!Number.isFinite(num) || num <= 0) return "0";
+    return ((num / 1e15) * Math.PI).toString(36).replace(/(0+|\.)/g, "") || "0";
+  }
+
+  function cacheTweetPayload(tweetId, payloadJson) {
+    if (!tweetId || !payloadJson) return;
+    if (state.tweetCache.has(tweetId)) state.tweetCache.delete(tweetId);
+    state.tweetCache.set(tweetId, payloadJson);
+    if (state.tweetCache.size > 40) {
+      const oldest = state.tweetCache.keys().next().value;
+      if (oldest !== undefined) state.tweetCache.delete(oldest);
+    }
+  }
+
+  function pickActiveFeedMedia() {
+    if (state.activeVideo && state.activeVideo.isConnected && isVisible(state.activeVideo)) {
+      const vr = state.activeVideo.getBoundingClientRect();
+      if (vr.bottom > 40 && vr.top < window.innerHeight - 40) return state.activeVideo;
+    }
+    const candidates = Array.from(document.querySelectorAll("video, img")).filter(el => (
+      el instanceof HTMLVideoElement ? isPostVideo(el) : isPostImage(el)
+    ));
+    if (!candidates.length) return null;
+    const viewMid = window.innerHeight / 2;
+    let best = candidates[0];
+    let bestScore = -Infinity;
+    for (const el of candidates) {
+      const r = el.getBoundingClientRect();
+      const visibleH = Math.max(0, Math.min(r.bottom, window.innerHeight) - Math.max(r.top, 0));
+      const dist = Math.abs((r.top + r.height / 2) - viewMid);
+      const score = (visibleH > 40 ? 100000 : 0) + visibleH - dist;
+      if (score > bestScore) {
+        bestScore = score;
+        best = el;
+      }
+    }
+    return best;
+  }
+
+  function pickActiveTweetArticle(targetMedia) {
+    const fromMedia = targetMedia?.closest?.("article, [role=dialog]");
+    if (fromMedia) return fromMedia;
+    const routeId = tweetIdFromUrl(window.location.href);
+    const articles = Array.from(document.querySelectorAll('article[data-testid="tweet"], article'));
+    if (routeId) {
+      const exact = articles.find(art =>
+        Array.from(art.querySelectorAll("a[href*='/status/']")).some(a => tweetIdFromUrl(a.href) === routeId)
+      );
+      if (exact) return exact;
+    }
+    const viewMid = window.innerHeight / 2;
+    let best = null;
+    let bestScore = -Infinity;
+    for (const art of articles) {
+      const r = art.getBoundingClientRect();
+      if (r.width <= 0 || r.height <= 0) continue;
+      const visibleH = Math.max(0, Math.min(r.bottom, window.innerHeight) - Math.max(r.top, 0));
+      if (visibleH <= 0) continue;
+      const dist = Math.abs((r.top + r.height / 2) - viewMid);
+      const score = visibleH - dist;
+      if (score > bestScore) {
+        bestScore = score;
+        best = art;
+      }
+    }
+    return best;
+  }
+
+  function extractTweetFromReactFiber(anchorEl, targetTweetId) {
+    if (!(anchorEl instanceof Element)) return null;
+    const seen = new Set();
+    const looksLikeTweet = obj => {
+      if (!obj || typeof obj !== "object") return false;
+      const legacy = obj.legacy || obj;
+      const id = String(obj.rest_id || legacy.id_str || obj.id_str || "");
+      if (!/^\d{5,24}$/.test(id)) return false;
+      if (targetTweetId && id !== targetTweetId) return false;
+      return Boolean(
+        legacy.extended_entities?.media?.length
+        || legacy.entities?.media?.length
+        || obj.mediaDetails?.length
+        || typeof legacy.full_text === "string"
+        || typeof obj.text === "string"
+      );
+    };
+    const searchObj = (root, maxNodes = 80) => {
+      const queue = [{ val: root, depth: 0 }];
+      let visited = 0;
+      while (queue.length && visited < maxNodes) {
+        const { val, depth } = queue.shift();
+        if (!val || typeof val !== "object" || val === window || seen.has(val) || depth > 7) continue;
+        try {
+          if (val.window === val) continue;
+        } catch (_) {
+          continue;
+        }
+        seen.add(val);
+        visited += 1;
+        if (looksLikeTweet(val)) return val;
+        if (Array.isArray(val)) {
+          for (let i = 0; i < Math.min(val.length, 16); i++) queue.push({ val: val[i], depth: depth + 1 });
+        } else {
+          let keys;
+          try {
+            keys = Object.keys(val);
+          } catch (_) {
+            continue;
+          }
+          for (let i = 0; i < Math.min(keys.length, 28); i++) {
+            const k = keys[i];
+            if (k === "return" || k === "child" || k === "sibling" || k === "_owner" || k === "stateNode") continue;
+            try { queue.push({ val: val[k], depth: depth + 1 }); } catch (_) {}
+          }
+        }
+      }
+      return null;
+    };
+
+    try {
+      for (let el = anchorEl, hops = 0; el && hops < 12; el = el.parentElement, hops++) {
+        const fiberKey = Object.keys(el).find(k => k.startsWith("__reactFiber$") || k.startsWith("__reactProps$"));
+        if (!fiberKey) continue;
+        let cur = el[fiberKey];
+        for (let depth = 0; cur && depth < 24; depth++) {
+          const candidate = cur.memoizedProps || cur.pendingProps || cur;
+          const hit = searchObj(candidate, 45);
+          if (hit) {
+            try { return JSON.stringify(hit); } catch (_) { return null; }
+          }
+          cur = cur.return;
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  function extractTweetSeedFromDom(article, fallbackUrl) {
+    if (!article) return "";
+    const statusLinks = Array.from(article.querySelectorAll("a[href*='/status/']"));
+    const statusHref = normalizeXPostUrl(statusLinks[0]?.href || fallbackUrl || window.location.href);
+    const id = tweetIdFromUrl(statusHref || fallbackUrl || window.location.href);
+    let username = "";
+    if (statusHref) {
+      const m = statusHref.match(/x\.com\/([^/]+)\/status\//i);
+      if (m && m[1] !== "i") username = m[1];
+    }
+    const text = article.querySelector('[data-testid="tweetText"]')?.innerText?.trim() || "";
+    const createdAt = article.querySelector("time")?.getAttribute("datetime") || "";
+    const items = [];
+    const seenUrls = new Set();
+
+    article.querySelectorAll("img").forEach(img => {
+      if (!isPostImage(img)) return;
+      const src = sourceUrl(img);
+      if (!isUsableMediaUrl(src)) return;
+      const variants = [...resolutionVariants(src), src].filter(isUsableMediaUrl);
+      const best = variants[0] || src;
+      if (seenUrls.has(best)) return;
+      seenUrls.add(best);
+      items.push({ kind: "image", thumbnailUrl: src, urls: variants });
+    });
+
+    article.querySelectorAll("video").forEach(video => {
+      if (!isPostVideo(video)) return;
+      const poster = video.poster || video.getAttribute("poster") || "";
+      const direct = sourceUrl(video);
+      const scoped = scopedVideoResources(video);
+      const urls = [direct, ...scoped].filter(u => isUsableMediaUrl(u));
+      items.push({
+        kind: "video",
+        thumbnailUrl: isUsableMediaUrl(poster) ? poster : "",
+        urls
+      });
+    });
+
+    if (!items.length && !text) return "";
+    return JSON.stringify({
+      xnowSeed: true,
+      tweetId: id,
+      username,
+      postUrl: statusHref || fallbackUrl || "",
+      createdAt,
+      text,
+      items
+    });
+  }
+
+  function findArticleForTweetId(tweetId) {
+    if (!tweetId) return null;
+    return Array.from(document.querySelectorAll('article[data-testid="tweet"], article')).find(art =>
+      Array.from(art.querySelectorAll("a[href*='/status/']")).some(a => tweetIdFromUrl(a.href) === tweetId)
+    ) || null;
+  }
+
+  async function openNativeDownloader(initialUrl = "", targetMedia = null) {
+    closeMenu();
+    const article = pickActiveTweetArticle(targetMedia);
+    let detectedUrl = normalizeXPostUrl(initialUrl)
+      || (targetMedia ? postUrlForMedia(targetMedia) : "")
+      || (article ? normalizeXPostUrl(article.querySelector("a[href*='/status/']")?.href || "") : "")
+      || normalizeXPostUrl(window.location.href)
+      || "";
+    const tweetId = tweetIdFromUrl(detectedUrl);
+    let payloadJson = (tweetId && state.tweetCache.get(tweetId)) || "";
+    if (!payloadJson && (targetMedia || article)) {
+      payloadJson = extractTweetFromReactFiber(targetMedia || article, tweetId)
+        || extractTweetSeedFromDom(article, detectedUrl)
+        || "";
+      if (tweetId && payloadJson) cacheTweetPayload(tweetId, payloadJson);
+    }
+
+    let itemIndex = null;
+    const rawHintSrc = targetMedia ? sourceUrl(targetMedia) : "";
+    const itemHint = rawHintSrc && !rawHintSrc.startsWith("blob:")
+      ? rawHintSrc
+      : (targetMedia?.poster || "");
+    if (targetMedia && article) {
+      const mediaNodes = Array.from(article.querySelectorAll("img, video"))
+        .filter(el => el instanceof HTMLVideoElement ? isPostVideo(el) : isPostImage(el));
+      const idx = mediaNodes.indexOf(targetMedia);
+      if (idx >= 0) itemIndex = idx;
+    }
+
+    if (!hasNativeBridge()) {
+      showToast("X-Now Downloader native bridge is unavailable.", "error");
+      return false;
+    }
+    try {
+      await nativeInvoke("open_downloader_window", {
+        url: detectedUrl || null,
+        payloadJson: payloadJson || null,
+        itemIndex,
+        itemHint: itemHint || null,
+        theme: document.documentElement.dataset.xnowTheme || "black"
+      });
+      return true;
+    } catch (error) {
+      console.warn("X-Now could not open Downloader window:", error);
+      showToast("Could not open X-Now Downloader window.", "error");
+      return false;
+    }
+  }
+
+  async function probePostForDownloader(requestId, targetUrl) {
+    if (!requestId || !hasNativeBridge()) return false;
+    let payloadJson = "";
+    const tweetId = tweetIdFromUrl(targetUrl);
+    if (tweetId && state.tweetCache.has(tweetId)) {
+      payloadJson = state.tweetCache.get(tweetId) || "";
+    }
+    if (!payloadJson && tweetId) {
+      const art = findArticleForTweetId(tweetId);
+      if (art) {
+        payloadJson = extractTweetFromReactFiber(art, tweetId) || extractTweetSeedFromDom(art, targetUrl) || "";
+      }
+    }
+    if (!payloadJson && tweetId && typeof fetch === "function") {
+      try {
+        const synUrl = `https://cdn.syndication.twimg.com/tweet-result?id=${tweetId}&token=${syndicationToken(tweetId)}`;
+        const res = await fetch(synUrl, { credentials: "omit" });
+        if (res.ok) payloadJson = await res.text();
+      } catch (_) {}
+    }
+    if (!payloadJson && /^https?:\/\//i.test(targetUrl || "") && typeof fetch === "function") {
+      try {
+        const pageRes = await fetch(targetUrl, { credentials: "include" });
+        if (pageRes.ok) payloadJson = await pageRes.text();
+      } catch (_) {}
+    }
+    if (tweetId && payloadJson) cacheTweetPayload(tweetId, payloadJson);
+    try {
+      await nativeInvoke("submit_downloader_probe", {
+        requestId,
+        payloadJson: payloadJson || ""
+      });
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  window.__xnowTools = {
+    openDownloader: openNativeDownloader,
+    probePostForDownloader,
+    pickActiveFeedMedia,
+    openImageViewer: showImageViewer,
+    closeImageViewer
+  };
 
   document.addEventListener("contextmenu", event => {
     const media = mediaFromTarget(event.target) || mediaAtPoint(event.clientX, event.clientY);
@@ -1175,6 +1904,14 @@
         {
           label: `Save ${kind} to the X-Now folder`,
           action: () => saveMedia(media)
+        },
+        ...(kind === "image" ? [{
+          label: "View / Zoom image",
+          action: () => showImageViewer(media)
+        }] : []),
+        {
+          label: "Open in X-Now Downloader",
+          action: () => openNativeDownloader(postUrlForMedia(media), media)
         },
         {
           label: kind === "video" ? "Open video post in default browser" : "Open post in default browser",
@@ -1343,7 +2080,10 @@
   document.addEventListener("visibilitychange", () => {
     try {
       if (document.hidden) window.__onWindowHidden();
-      else window.__resumeIfNeeded();
+      else {
+        window.__resumeIfNeeded();
+        reportThemeBackground();
+      }
       // Hidden pages poll at the slow cadence; visibility flips re-arm it.
       syncPollTick();
     } catch (error) {
@@ -1360,9 +2100,12 @@
   // computed body background once it is a concrete color, and again whenever
   // it changes. The native side re-syncs via set_background_color.
   var _xnowLastThemeKey = null;
-  function reportThemeBackground() {
+  function reportThemeBackground(force) {
     try {
-      var bg = getComputedStyle(document.body).backgroundColor;
+      if (!force && document.hidden) return;
+      var body = document.body;
+      if (!body) return;
+      var bg = getComputedStyle(body).backgroundColor;
       if (!bg) return;
       // A transparent body (rgba alpha < 1) means the theme is not resolved
       // yet — reporting it would paint the native background black mid-light-
@@ -1381,12 +2124,12 @@
     }
   }
   // X applies the theme some seconds after load; sample a few times, then on
-  // every route poll (cheap: one getComputedStyle per tick).
-  [400, 1500, 4000, 8000].forEach(delay => setTimeout(reportThemeBackground, delay));
-  setInterval(reportThemeBackground, 5000);
+  // every visible slow tick (skipped when hidden to save wakeups).
+  [400, 1500, 4000, 8000].forEach(delay => setTimeout(() => reportThemeBackground(false), delay));
+  setInterval(() => reportThemeBackground(false), 5000);
   // Manual trigger for the regression harness (same pattern as the other
   // __-prefixed page APIs the native side and tests drive directly).
-  window.__xnowReportThemeBackground = reportThemeBackground;
+  window.__xnowReportThemeBackground = () => reportThemeBackground(true);
 
   // In-page route change for the tray and the page scripts. X's router renders the
   // new path, and the document is not reloaded.
@@ -1491,19 +2234,15 @@
 
   function observeVideoChanges() {
     if (!document.documentElement) return;
+    mountGuardSweep(document);
     scanVideos();
-
-    const nodeContainsVideo = node => {
-      if (!(node instanceof Element) && !(node instanceof DocumentFragment)) return false;
-      return (node instanceof Element && node.matches("video"))
-        || Boolean(node.querySelector("video"));
-    };
 
     // The feed recycles and removes <video> nodes constantly. Stop observing a
     // removed one and drop every reference to it, or the feed's whole history
     // of video elements stays alive in the intersection observer.
     const forgetVideo = video => {
       if (video.isConnected) return;
+      mountGuardCleanup(video);
       observer.unobserve(video);
       delete video.dataset.xnowObserved;
       if (state.activeVideo === video) state.activeVideo = null;
@@ -1514,15 +2253,40 @@
       }
     };
 
+    // Single unified observer for both mount-guard and video audio/observer
+    // lifecycle (avoids duplicate full-subtree walks on every feed mutation).
     new MutationObserver(mutations => {
       let videoWasAdded = false;
-      for (const mutation of mutations) {
+      for (let i = 0; i < mutations.length; i++) {
+        const mutation = mutations[i];
         if (mutation.type !== "childList") continue;
-        mutation.removedNodes.forEach(node => {
+        const removed = mutation.removedNodes;
+        for (let j = 0; j < removed.length; j++) {
+          const node = removed[j];
+          if (node.nodeType !== 1) continue;
           if (node instanceof HTMLVideoElement) forgetVideo(node);
           else if (node instanceof Element) node.querySelectorAll("video").forEach(forgetVideo);
-        });
-        if (Array.from(mutation.addedNodes).some(nodeContainsVideo)) videoWasAdded = true;
+        }
+        const added = mutation.addedNodes;
+        for (let j = 0; j < added.length; j++) {
+          const node = added[j];
+          if (node.nodeType !== 1) continue;
+          if (node instanceof HTMLVideoElement) {
+            mountGuardMark(node);
+            videoWasAdded = true;
+          } else if (node instanceof Element) {
+            if (node.tagName === "VIDEO") {
+              mountGuardMark(node);
+              videoWasAdded = true;
+            } else if (!node.classList?.contains("xnow-ui")) {
+              const vids = node.querySelectorAll?.("video");
+              if (vids && vids.length) {
+                vids.forEach(mountGuardMark);
+                videoWasAdded = true;
+              }
+            }
+          }
+        }
       }
       if (videoWasAdded) scheduleScan();
     }).observe(document.documentElement, {

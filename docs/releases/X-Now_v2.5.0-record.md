@@ -13,7 +13,7 @@ v2.5.0 adds a Settings panel, two controls beside X's logo, and Quiet hours. It 
 
 1. **Sign-in windows** for Google and Apple were closed by the app too early, or never opened. Google sign-in now works end to end (confirmed by the maintainer on Windows). Apple's sign-in window opens and closes correctly.
 2. **Video sound was silent** while X-Now was in the foreground, because Windows kept X-Now's own audio session muted. The mute logic was rewritten.
-3. **Black flashes and bleached windows** while scrolling and during video playback. These were fixed in the rendering pass (previously listed under "Unreleased").
+3. **Black flashes and bleached windows** while scrolling and during video playback. v2.5.0 refines the rendering layer that the v2.1.0 tag already shipped (see §5), and fixes the remaining black flashes on recycled video players.
 
 The release also rewrites the release workflow so that one manual run produces one universal installer per platform.
 
@@ -135,19 +135,15 @@ The stale-window timer from the previous version was removed.
 
 ---
 
-## 5. Rendering fixes (the former "Unreleased" section)
+## 5. Rendering, window and sleep layer
 
-These shipped in v2.5.0 because they are new since v2.1.0.
+Most of this layer was already in the v2.1.0 tag. Checked with `git show v2.1.0:<file>`: the video mount guard (`__xnowVideoMountGuard`, `data-xnow-mount-wait`), the theme-adaptive background (`XNOWBG`), the DirectComposition and occlusion switches, the idle-aware page poll (1 s to 30 s), the 5 s hidden watchdog poll, native zoom, and the per-launch toggles including `XNOW_WEBVIEW_ARGS`. v2.5.0 keeps all of them and adds these changes:
 
-- **Black flashes while scrolling.** DirectComposition video overlay planes detached during scroll. Video overlays are disabled with `--disable-direct-composition-video-overlays` (bisect switch: `--no-gpu-video-overlays-fix`).
-- **Theme-adaptive native background.** The page reports its real background as `XNOWBG:r,g,b`, and the native WebView2 background follows it at runtime. The launch background is dark, then theme-adaptive.
-- **Bleached/white screen.** Chromium's native occlusion tracker is disabled for X-Now's webview (`CalculateNativeWinOcclusion`).
-- **Video mount guard.** A freshly mounted or source-swapped `<video>` stays hidden until its first frame decodes, so the black player chrome never shows. Contract-tested through `window.__xnowVideoMountGuard`.
-- **Zoom.** Uses the webview engine's native `set_zoom` (100–300%, tracked in Rust) instead of a CSS zoom hack.
-- **Icons.** The bundle icons are byte-identical to the root `icons/` set, and `build.rs` watches them.
-- **Idle-aware timers.** The page poll adapts (1 s active, 5 s idle, 15 s deep idle, 30 s hidden), and the Rust watchdog is event-driven, with a 5 s fallback poll while hidden.
-- **Per-launch workaround toggles.** `--no-occlusion-fix`, `--no-gpu-video-overlays-fix`, `--webview-default` and `--webview-args "..."` (or `XNOW_WEBVIEW_ARGS`) change the rendering workarounds without rebuilding. `--webview-diagnostics` logs the webview runtime state.
-- **Page sleep when hidden.** [`src-tauri/src/webview_sleep.rs`](../../src-tauri/src/webview_sleep.rs) (Windows) suspends the page and lowers the memory target while the window is minimized. It is best effort; a failure leaves the page running.
+- **Mount guard for recycled players.** The guard re-arms on `loadstart` and `emptied`, and no longer trusts a stale `readyState >= 2` from the previous stream. This closes the last black-gap window found at source swaps (see `CHANGELOG.md`, 2.5.0).
+- **Autoplay switch.** `--autoplay-policy=no-user-gesture-required` is in `DEFAULT_WEBVIEW_BROWSER_ARGS`. It is not in v2.1.0, and it applies to every WebView page, sign-in windows included.
+- **Page sleep when hidden.** New module `src-tauri/src/webview_sleep.rs` (Windows). It suspends the page and lowers its memory target while the window is hidden. It is best effort: if it fails, the page keeps running.
+- **Zoom saved.** The zoom level is stored in `settings.json` and restored on launch. It did not persist before.
+- **Theme in Settings.** Settings › Display switches X's Background (Default or Lights out) through X's own Display page.
 
 ---
 
@@ -273,3 +269,96 @@ These are recorded in `dist/checksums.txt`. Run `sha256sum -c checksums.txt` fro
 - Settings are stored in `settings.json` in the app data folder. Existing values carry over.
 - If a previous version left X-Now's audio session muted, the first visible sync after launch clears it (the marker file handles crashes).
 - The standalone exe and the installers replace the v2.1.0 build; no manual steps are needed.
+
+
+---
+
+## 13. Implementation notes for future versions
+
+### 13.1 Where the logic lives
+
+| Area | Function or file | Notes |
+|---|---|---|
+| Sign-in and new windows | `classify_new_window`, `Session` (Unknown, Out, In), `report_session` in `lib.rs` | Exact host match. Popups close only on Out to In |
+| Title channel | `XNOW:<handle>`, `XNOWOUT:`, `XNOWBG:r,g,b` in `lib.rs` and `x-tools.js` | The page reports through `document.title`; Rust restores the title |
+| Settings store | `init`, `get`, `update`, `mutate`, `apply_patch`, `write_file` in `settings.rs` | camelCase JSON, `#[serde(default)]`, temp file then rename. A corrupt file is kept as `settings.json.bad`. History is capped at 50 |
+| Settings commands | `get_settings`, `update_settings`, `apply_settings_change` in `lib.rs` | `update_settings` refuses `launchAtLogin`. Native changes call `__xnowSettingsChanged` in the page |
+| Settings sheet | `switchControl`, `save`, `write`, `loadSettings`, `render` in `x-settings.js` | Optimistic values in `state.view`, mirrored to `window.__xnowSettings` |
+| Foreground unmute | `applyDefaultVideoAudio`, `unmuteForActiveWindow` in `x-tools.js` | `dataset.xnowFgSrc` marks each source. Capture-phase `play` listener and window `focus` |
+| Pause and mute on hide | `__onWindowHidden`, `__resumeIfNeeded` in `x-tools.js`; watchdog in `lib.rs` | Reads `pauseOnMinimize` and `muteOnMinimize`. Restore resumes the video that was playing if it is on screen, otherwise the first video in view |
+| Audio session | `audio::decide`, `audio::sync`, `Book`, marker `audio-muted.flag` in `audio.rs` | Modes Hidden, Visible, Release. Windows only. `audio.rs` existed in v2.1.0, but `decide` is new |
+| Big window icon | `set_big_window_icon` in `lib.rs` | `WM_SETICON` with `ICON_BIG`, from icon group 32512 |
+| Quiet hours | `quietActive`, `enforceQuiet`, `play` listener in `x-settings.js` | Local time, evaluated in the page. Enforced every 15 s |
+| Refresh | `refreshHandle` in `x-tools.js`; the rail button in `x-rail.js` | In place, using X's Home tab and "Show N posts" pill. Falls back to a reload |
+
+### 13.2 Settings model
+
+| Key (camelCase) | Default | Limits and notes |
+|---|---|---|
+| `closeToTray` | `true` | |
+| `alwaysOnTop` | `false` | |
+| `pauseOnMinimize` | `true` | |
+| `muteOnMinimize` | `true` | |
+| `sleepOnMinimize` | `true` | |
+| `feedVolume` | `20` | 0 to 100 |
+| `standaloneVolume` | `50` | 0 to 100 |
+| `cobaltFallback` | `true` | |
+| `zoomPercent` | `100` | 50 to 300 |
+| `motion` | `system` | `system`, `reduce`, `full` |
+| `quietMode` | `off` | `off`, `nights`, `custom` |
+| `quietStart`, `quietEnd` | `1380`, `420` | Minutes after midnight, 0 to 1439 |
+| `focusLayout` | `false` | |
+| `unmuteWhenActive` | `true` | |
+| `history` | `[]` | Saved files, newest first, at most 50 |
+
+To add a setting: add the field with its default, add an `apply_patch` arm with validation, add a Settings row, add it to the `DEFAULTS` in `scripts/verify-xnow-ui.js`, and add it to the `SWITCHES` list in `scripts/verify-xnow-settings-live.js` if it is a switch.
+
+### 13.3 Test notes
+
+- `npm run test:all` runs 41 Rust tests, the contract harness (94) and the UI harness (80). In jsdom, `currentSrc` is a getter, so set it with `Object.defineProperty`.
+- `npm run test:live` drives the built exe on CDP port 9336. It closes any running X-Now, seeds one history row, and restores `settings.json` at the end.
+- The live suite starts from the user's saved switch states. `setOn()` turns Pause video and Mute sound on before the checks that need them on. An earlier "Mute sound" failure came from this setup, not from the app. The suite passed 172/172 with the switches starting on and off.
+- X-Now mutes the first playing `<video>` in DOM order. The mute check prepends its test video so that it is the one checked.
+- Wrapping `window.__TAURI__.core.invoke` in the live page recorded no calls. Log from Rust (`eprintln!`) instead.
+- Open risk, not reproduced: `__xnowSettingsChanged` re-reads settings after every change, so a late reply could overwrite a newer switch value. A probe that delayed replies by 400 ms did not reproduce it. If a switch ever shows a stale state, serialize the reads and writes in `x-settings.js`.
+
+### 13.4 Build and artifact notes
+
+- Tauri embeds `frontend/*.js` in the exe. After each build, check that every file's bytes appear in the exe. A byte search does this.
+- Two builds of the same source differ in about 24 bytes: PE timestamps, debug-directory timestamps and the PDB GUID. The installers' copies of the exe differ by a 3-byte bundler marker (`UNK` in NSIS, `MSI` in the MSI). The code is the same.
+- `tauri build` fails with "os error 32" while `target/release/X-Now.exe` is running. Close the app, or set `CARGO_TARGET_DIR` to a folder outside the repo.
+- The NSIS payload cannot be inspected without installing, so verify it from the build log. Its exe comes from the same run as the MSI.
+- `core.autocrlf` is true. Committed files are LF (`git ls-files --eol`). `sha256sum -c` fails on a CRLF working copy, so run it on the committed copy or strip the CR characters.
+- `cargo check` reports five deprecation warnings for `tauri_plugin_shell::Shell::open` (in `lib.rs` and `tray.rs`). Moving to `tauri-plugin-opener` is deferred.
+
+### 13.5 Release mechanics
+
+- `release.yml` runs only on `workflow_dispatch`, with inputs `release_tag` and `publish_release`. Its `version` job checks the four manifests and `docs/releases/X-Now_vX.Y.Z.md`.
+- A draft keeps the tag it was created with. Before a new run, delete the old draft, and delete any tag that points to an old commit.
+- Publishing creates the tag on the commit `main` points to. Either keep `main` at the built commit, or make sure later commits change only docs (`git diff --stat <built>..HEAD`).
+- Download URL pattern: `https://github.com/<owner>/<repo>/releases/download/<tag>/<file>`. `/releases/latest` points to the newest published release.
+- Watch a run without polling: `gh run watch <id> --exit-status`, in the background.
+- Check a draft before publishing: `targetCommitish`, the asset list, the notes body, and `grep <file> SHA256SUMS.txt | sha256sum -c -`.
+
+### 13.6 Local folder layout
+
+- `dist/`: tracked standalone exes (`X-Now_v2.1.0.exe`, `X-Now_v2.5.0.exe`) and `checksums.txt`. `dist/installers/` is git-ignored.
+- `run-x-now.bat` launches `dist/X-Now_v2.5.0.exe`.
+- `scripts/`: the verification harnesses and the flash tools. `scripts/diagnostics/`: one-off probes that npm does not run.
+- `backup/`: a local rollback snapshot. It is git-ignored.
+
+### 13.7 Open items carried forward
+
+- Task Manager icon: confirm visually on the maintainer's machine.
+- Revoke the `ghp_` token that was exposed in terminal output earlier.
+- Manual sign-in checks not run: password, passkey, two-factor (§9).
+- Correct the 2.5.0 wording in `CHANGELOG.md` and this record. Several items listed as new in 2.5.0 were already in the v2.1.0 tag: the mount guard, the theme background, the overlay and occlusion switches, the idle timers, the 5 s poll and the per-launch toggles. Reword them as refinements.
+- The settings-race risk in §13.3.
+- Replace the deprecated `Shell::open` calls.
+- `docs/GITHUB_DESKTOP_PUBLISHING.md` is a historical v2.1.0 guide.
+
+### 13.8 Test artifacts removed
+
+After this record was written, the test and check caches from the v2.5.0 work were removed: `src-tauri/target/debug` (about 4.4 GB), the flash-smoke outputs, the separate installer build folder, downloaded release assets, live-suite runs and probe logs. To recreate them, run `npm run test:all`, run `npm run test:live` on Windows (it needs the built exe), and run `cargo build --release`.
+
+Kept on purpose: `src-tauri/target/release` (the built app), `dist/`, `backup/`, and the smoke-test dependency copy at `%TEMP%\xnow-verify\node_modules`, which BUILD_AND_FIXES.md references.

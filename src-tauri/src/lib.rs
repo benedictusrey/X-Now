@@ -4,6 +4,7 @@
 
 #[cfg(windows)]
 mod audio;
+mod downloader;
 mod settings;
 mod tray;
 #[cfg(windows)]
@@ -12,22 +13,30 @@ mod webview_sleep;
 use std::{
     fs,
     io::Read,
-    path::PathBuf,
-    process::Command,
+    path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicBool, AtomicU32, Ordering},
+        atomic::{AtomicBool, Ordering},
         Arc, Condvar, Mutex,
     },
     time::{SystemTime, UNIX_EPOCH},
 };
 
 use tauri::{
-    webview::NewWindowResponse, window::Color, AppHandle, Manager, Url, WebviewUrl,
+    webview::NewWindowResponse, window::Color, AppHandle, Emitter, Manager, Url, WebviewUrl,
     WebviewWindowBuilder,
 };
 use tauri_plugin_shell::ShellExt;
 
 const X_WINDOW_LABEL: &str = "x";
+const DOWNLOADER_WINDOW_LABEL: &str = "downloader";
+const DEFAULT_WINDOW_WIDTH: f64 = 1300.0;
+const DEFAULT_WINDOW_HEIGHT: f64 = 850.0;
+const MIN_WINDOW_WIDTH: f64 = 900.0;
+const MIN_WINDOW_HEIGHT: f64 = 600.0;
+const DOWNLOADER_WINDOW_WIDTH: f64 = 780.0;
+const DOWNLOADER_WINDOW_HEIGHT: f64 = 840.0;
+const DOWNLOADER_MIN_WIDTH: f64 = 580.0;
+const DOWNLOADER_MIN_HEIGHT: f64 = 600.0;
 /// Page scripts, injected in this order: media tools and overlays first, then
 /// the rail controls and the Settings panel that build on them. The brand icon
 /// placeholder becomes a data URI, so the page needs no asset protocol.
@@ -72,9 +81,132 @@ fn helper_script() -> String {
 /// after launch. The page still decides the mute state; this only lifts the autoplay block.
 const DEFAULT_WEBVIEW_BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,CalculateNativeWinOcclusion --disable-direct-composition-video-overlays --autoplay-policy=no-user-gesture-required";
 
-/// Guards the playback watchdog so it is spawned exactly once per process,
-/// no matter how many times the X window is (re)launched.
+/// Guards the playback watchdog so it is spawned at most once per live window,
+/// and reset cleanly if the window closes.
 static WATCHDOG_STARTED: AtomicBool = AtomicBool::new(false);
+static PAUSE_RECHECK_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
+
+struct WatchdogGuard;
+impl Drop for WatchdogGuard {
+    fn drop(&mut self) {
+        WATCHDOG_STARTED.store(false, Ordering::Release);
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct WorkAreaFrame {
+    target_width: f64,
+    target_height: f64,
+    outer_x: i32,
+    outer_y: i32,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn compute_centered_work_area_frame(
+    work_x: i32,
+    work_y: i32,
+    work_width: u32,
+    work_height: u32,
+    overhead_width: u32,
+    overhead_height: u32,
+    scale: f64,
+    default_width: f64,
+    default_height: f64,
+    min_width: f64,
+    min_height: f64,
+) -> WorkAreaFrame {
+    let safe_scale = if scale > 0.0 { scale } else { 1.0 };
+    let max_inner_width = ((work_width as f64 - overhead_width as f64) / safe_scale).max(0.0);
+    let max_inner_height = ((work_height as f64 - overhead_height as f64) / safe_scale).max(0.0);
+    let target_width = default_width.min(max_inner_width).max(min_width);
+    let target_height = default_height.min(max_inner_height).max(min_height);
+    let expected_outer_w = (target_width * safe_scale).round() + overhead_width as f64;
+    let expected_outer_h = (target_height * safe_scale).round() + overhead_height as f64;
+    let outer_x = work_x + (((work_width as f64 - expected_outer_w).max(0.0)) / 2.0).floor() as i32;
+    let outer_y =
+        work_y + (((work_height as f64 - expected_outer_h).max(0.0)) / 2.0).floor() as i32;
+    WorkAreaFrame {
+        target_width,
+        target_height,
+        outer_x,
+        outer_y,
+    }
+}
+
+fn is_window_hidden_state(minimized: Option<bool>, visible: Option<bool>) -> bool {
+    // On Wayland, is_minimized() is unsupported (None); treat that as not minimized
+    // and rely on visibility so playback isn't permanently paused.
+    minimized.unwrap_or(false) || !visible.unwrap_or(false)
+}
+
+fn is_wayland_session() -> bool {
+    cfg!(target_os = "linux") && std::env::var_os("WAYLAND_DISPLAY").is_some_and(|v| !v.is_empty())
+}
+
+fn fit_window_to_work_area_on_monitor(
+    window: &tauri::WebviewWindow,
+    anchor_monitor: Option<tauri::Monitor>,
+    default_width: f64,
+    default_height: f64,
+    min_width: f64,
+    min_height: f64,
+) {
+    let Ok(inner) = window.inner_size() else {
+        return;
+    };
+    let Ok(outer) = window.outer_size() else {
+        return;
+    };
+    let Some(monitor) = anchor_monitor
+        .or_else(|| window.current_monitor().ok().flatten())
+        .or_else(|| window.primary_monitor().ok().flatten())
+    else {
+        return;
+    };
+    let scale = monitor.scale_factor();
+    let work = monitor.work_area();
+    let overhead_width = outer.width.saturating_sub(inner.width);
+    let overhead_height = outer.height.saturating_sub(inner.height);
+    let frame = compute_centered_work_area_frame(
+        work.position.x,
+        work.position.y,
+        work.size.width,
+        work.size.height,
+        overhead_width,
+        overhead_height,
+        scale,
+        default_width,
+        default_height,
+        min_width,
+        min_height,
+    );
+    let current_width = inner.width as f64 / scale;
+    let current_height = inner.height as f64 / scale;
+    let needs_resize = (current_width - frame.target_width).abs() > 0.5
+        || (current_height - frame.target_height).abs() > 0.5;
+    if needs_resize {
+        let _ = window.set_size(tauri::LogicalSize::new(
+            frame.target_width,
+            frame.target_height,
+        ));
+    }
+    if is_wayland_session() {
+        return;
+    }
+    if !needs_resize {
+        if let Ok(final_outer) = window.outer_size() {
+            let x = work.position.x
+                + (((work.size.width as f64 - final_outer.width as f64).max(0.0)) / 2.0).floor()
+                    as i32;
+            let y = work.position.y
+                + (((work.size.height as f64 - final_outer.height as f64).max(0.0)) / 2.0).floor()
+                    as i32;
+            let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
+            return;
+        }
+    }
+    let _ = window.set_position(tauri::PhysicalPosition::new(frame.outer_x, frame.outer_y));
+}
 
 /// Webview diagnostics mode (`--webview-diagnostics`): set once at launch,
 /// read by the watchdog and the window-event paths to gate the detailed
@@ -355,7 +487,8 @@ fn apply_page_theme_background(window: &tauri::WebviewWindow, css_rgb: &str) {
 /// Labels for OAuth popup windows created by the login flow (X's Google/Apple
 /// sign-in opens `target=_blank` popups that relay the token back via
 /// `postMessage` — they must open INSIDE the app, not in an external browser).
-static POPUP_COUNTER: AtomicU32 = AtomicU32::new(0);
+#[cfg(windows)]
+static POPUP_COUNTER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
 /// What X-Now does when a page asks to open a new window.
 #[derive(Debug, PartialEq, Eq)]
@@ -386,6 +519,32 @@ fn is_x_host(host: &str) -> bool {
         || host.ends_with(".x.com")
         || host == "twitter.com"
         || host.ends_with(".twitter.com")
+}
+
+/// Hosts/schemes permitted in same-window navigation or embedded subframes
+/// (`about:blank` bootstrap frames, Google Sign-In button iframes, Apple/captcha
+/// challenges). WebKitGTK invokes `on_navigation` for subframes too.
+fn is_allowed_in_page_navigation(url: &Url) -> bool {
+    if matches!(url.scheme(), "about" | "blob" | "data") {
+        return true;
+    }
+    let host = url.host_str().unwrap_or("").to_ascii_lowercase();
+    if is_x_host(&host) {
+        return true;
+    }
+    if host == "accounts.google.com" && url.path().starts_with("/gsi/") {
+        return true;
+    }
+    matches!(
+        host.as_str(),
+        "appleid.apple.com"
+            | "appleid.cdn-apple.com"
+            | "recaptcha.net"
+            | "www.recaptcha.net"
+            | "challenges.cloudflare.com"
+    ) || host.ends_with(".recaptcha.net")
+        || host.ends_with(".arkoselabs.com")
+        || host.ends_with(".funcaptcha.com")
 }
 
 fn classify_new_window(url: &Url) -> NewWindow {
@@ -438,10 +597,14 @@ fn on_session_report(prev: Session, signed_in: bool) -> (Session, bool) {
 
 /// Records a page report in `SESSION`; true when it completes a sign-in.
 fn report_session(signed_in: bool) -> bool {
-    let mut session = SESSION.lock().unwrap();
+    let mut session = SESSION.lock().unwrap_or_else(|e| e.into_inner());
     let (next, completed) = on_session_report(*session, signed_in);
     *session = next;
     completed
+}
+
+fn is_signed_in() -> bool {
+    *SESSION.lock().unwrap_or_else(|e| e.into_inner()) == Session::In
 }
 
 pub(crate) fn x_data_directory(app: &AppHandle) -> Result<PathBuf, String> {
@@ -540,27 +703,41 @@ const REPORT_JS: &str = r#"(function(){
 })()"#;
 
 /// Pause playback when the window becomes hidden/minimized. Layered:
-/// page-side pause (in `__onWindowHidden`), then a hard mute of this app's
-/// Windows audio sessions as a guarantee.
+/// page-side pause (in `__onWindowHidden`), then WebView2 sleep once JS finishes
+/// pausing (so `TrySuspend` cannot freeze the renderer before `__onWindowHidden` runs),
+/// plus a hard mute of this app's Windows audio sessions as a guarantee.
 fn pause_media_for_hidden(w: &tauri::WebviewWindow) {
     let (pause, sleep) = settings::read(|s| (s.pause_on_minimize, s.sleep_on_minimize));
     if pause {
-        let _ = w.eval_with_callback(PAUSE_JS, |report| {
+        let w_sleep = w.clone();
+        let _ = w.eval_with_callback(PAUSE_JS, move |report| {
             eprintln!("[X-Now] Watchdog pause report: {}", report);
+            #[cfg(windows)]
+            if sleep
+                && is_window_hidden_state(w_sleep.is_minimized().ok(), w_sleep.is_visible().ok())
+            {
+                set_page_sleep(&w_sleep, true);
+            }
+            #[cfg(not(windows))]
+            let _ = (&w_sleep, sleep);
         });
-        // Re-check a moment later: if the player engine re-played it, the report
-        // will show it (and the OS-level session mute still guarantees silence).
-        let w2 = w.clone();
-        std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_millis(2500));
-            let _ = w2.eval_with_callback(REPORT_JS, |report| {
-                eprintln!("[X-Now] Watchdog recheck: {}", report);
+        if WEBVIEW_DIAGNOSTICS.load(Ordering::Relaxed)
+            && !PAUSE_RECHECK_IN_FLIGHT.swap(true, Ordering::Relaxed)
+        {
+            let w2 = w.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(2500));
+                let _ = w2.eval_with_callback(REPORT_JS, |report| {
+                    eprintln!("[X-Now] Watchdog recheck: {}", report);
+                });
+                PAUSE_RECHECK_IN_FLIGHT.store(false, Ordering::Relaxed);
             });
-        });
-    }
-    #[cfg(windows)]
-    if sleep {
-        set_page_sleep(w, true);
+        }
+    } else {
+        #[cfg(windows)]
+        if sleep {
+            set_page_sleep(w, true);
+        }
     }
 }
 
@@ -622,21 +799,19 @@ fn resume_media_for_visible(w: &tauri::WebviewWindow) {
 /// than the old blind 800 ms poll) and the page eval still only runs on a
 /// state CHANGE.
 fn watch_x_window(w: tauri::WebviewWindow) {
-    // Fail-safe direction: if a state query errors (e.g. the window was
-    // destroyed), treat the window as HIDDEN so playback gets paused.
-    let state_hidden = || w.is_minimized().unwrap_or(true) || !w.is_visible().unwrap_or(false);
+    let _guard = WatchdogGuard;
+    let state_hidden = || is_window_hidden_state(w.is_minimized().ok(), w.is_visible().ok());
     let mut last_hidden = state_hidden();
     // Last audio reconcile: (hidden state, when). Re-run on every hidden change
-    // and at least once per poll, so sessions WebView2 creates later are caught.
+    // and periodically (5s while hidden, 15s while visible) so new sessions are caught
+    // without taking an OS process snapshot every 5s while idle.
     #[cfg(windows)]
     let mut audio_synced: Option<(bool, std::time::Instant)> = None;
+    #[cfg(windows)]
+    const VISIBLE_AUDIO_RECONCILE: std::time::Duration = std::time::Duration::from_secs(15);
     let mut startup_ticks = 0u32;
     let mut startup_reported = false;
     loop {
-        // Idle-aware wait: window events set WATCHDOG_WAKE and interrupt this
-        // wait immediately; with no event it times out after 5 s and the
-        // state is re-checked anyway as a safety net for any edge path that
-        // bypasses the event hooks.
         let pending_guard = WATCHDOG_WAKE
             .0
             .lock()
@@ -648,14 +823,20 @@ fn watch_x_window(w: tauri::WebviewWindow) {
         *pending_guard = false;
         drop(pending_guard);
 
+        if w.app_handle().get_webview_window(X_WINDOW_LABEL).is_none() {
+            break;
+        }
+
         let hidden = state_hidden();
-        // Audio sessions (audio.rs): muted while hidden, and only the mutes we
-        // set are released while visible. Covers persisted mutes from a crash
-        // and sessions created after a transition.
         #[cfg(windows)]
         {
+            let interval = if hidden {
+                HIDDEN_POLL
+            } else {
+                VISIBLE_AUDIO_RECONCILE
+            };
             let due = match audio_synced {
-                Some((was_hidden, at)) => was_hidden != hidden || at.elapsed() >= HIDDEN_POLL,
+                Some((was_hidden, at)) => was_hidden != hidden || at.elapsed() >= interval,
                 None => true,
             };
             if due {
@@ -687,26 +868,19 @@ fn watch_x_window(w: tauri::WebviewWindow) {
             resume_media_for_visible(&w);
         }
         last_hidden = hidden;
-        // Cold-start diagnostic: ~20 s after launch, with no hidden/visible
-        // transition yet, dump the TRUE fresh-launch page state (muted?
-        // volume?) — the E2E evidence that the startup audio defaults hold
-        // BEFORE any minimize/restore cycle. (4 ticks ≈ 20 s at the 5 s
-        // fallback cadence; launch events usually land it sooner.)
         if !startup_reported {
             if hidden {
-                startup_reported = true; // a transition happened first; skip
+                startup_reported = true;
             } else {
                 startup_ticks += 1;
                 if startup_ticks >= 4 {
                     startup_reported = true;
-                    let _ = w.eval_with_callback(REPORT_JS, |report| {
-                        eprintln!("[X-Now] Watchdog startup report: {}", report);
-                    });
-                    // OS-level evidence: session mute + master volume.
-                    #[cfg(windows)]
-                    audio::report_audio_state();
-                    // Diagnostics mode: full webview GPU/runtime state too.
                     if WEBVIEW_DIAGNOSTICS.load(Ordering::Relaxed) {
+                        let _ = w.eval_with_callback(REPORT_JS, |report| {
+                            eprintln!("[X-Now] Watchdog startup report: {}", report);
+                        });
+                        #[cfg(windows)]
+                        audio::report_audio_state();
                         let _ = w.eval_with_callback(WEBVIEW_DIAGNOSTICS_JS, |report| {
                             eprintln!("[X-Now] Webview diagnostics (startup): {}", report);
                         });
@@ -760,18 +934,22 @@ pub fn launch_x_internal(app: &AppHandle, start_minimized: bool) -> Result<(), S
     // changes to anything else.
     let username_cache: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
     let cache_for_title = username_cache.clone();
+    let last_applied_title: Arc<Mutex<String>> = Arc::new(Mutex::new(String::from("X-Now")));
+    let title_guard = last_applied_title.clone();
+    let start_visible_now = !start_minimized && cfg!(target_os = "linux");
     let window = WebviewWindowBuilder::new(
         app,
         X_WINDOW_LABEL,
         WebviewUrl::External("https://x.com/".parse().unwrap()),
     )
     .title("X-Now")
-    .inner_size(1300.0, 850.0)
-    .min_inner_size(900.0, 600.0)
+    .inner_size(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)
+    .min_inner_size(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)
     .resizable(true)
     .center()
-    // Built hidden and shown once below: a visible-then-shown window painted twice at launch.
-    .visible(false)
+    // Built hidden on Windows/macOS and shown once below; on Linux/Wayland,
+    // creating a hidden GTK window and calling show() later can freeze input.
+    .visible(start_visible_now)
     // X's dark surface color: with a white default background, every frame
     // not yet painted by the webview (launch, occlusion-throttled
     // compositing, heavy video churn) blanches the whole window. wry maps
@@ -802,91 +980,107 @@ pub fn launch_x_internal(app: &AppHandle, start_minimized: bool) -> Result<(), S
         let kind = classify_new_window(&url);
 
         if kind == NewWindow::SignIn {
-            let label = format!("popup-{}", POPUP_COUNTER.fetch_add(1, Ordering::Relaxed));
-            eprintln!("[X-Now] Intercepted OAuth login window: {}", url);
-
-            let (w, h) = features
-                .size()
-                .map(|s| (s.width as f64, s.height as f64))
-                .unwrap_or((540.0, 700.0));
-
-            #[cfg(windows)]
-            let env = features.opener().environment.clone();
-
-            let blank = url.as_str() == "about:blank";
-            let app_close = popup_app.clone();
-            let label_close = label.clone();
-            let close_once = Arc::new(AtomicBool::new(false));
-            let flag_nav = close_once.clone();
-
-            let mut builder = WebviewWindowBuilder::new(
-                &popup_app,
-                label,
-                WebviewUrl::External(url.clone()),
-            )
-            .title("X-Now — Sign in")
-            .inner_size(w.max(500.0), h.max(600.0))
-            .center()
-            .background_color(Color(15, 20, 25, 255))
-            .initialization_script(r#"
-                (function() {
-                    var darkStyle = document.createElement('style');
-                    darkStyle.textContent = 'html, body { background-color: #0f1419 !important; color: #fff !important; }';
-                    (document.head || document.documentElement).appendChild(darkStyle);
-
-                    setInterval(function() {
-                        var host = location.hostname;
-                        var isX = host === 'x.com' || host.endsWith('.x.com') ||
-                                  host === 'twitter.com' || host.endsWith('.twitter.com');
-                        // OAuth redirects back to x.com once the token relay
-                        // (postMessage) has fired — the popup's job is done.
-                        if (isX) window.close();
-                    }, 300);
-                })();
-            "#)
-            .on_navigation(move |nav_url| {
-                let is_x = is_x_host(nav_url.host_str().unwrap_or(""));
-                if is_x && !flag_nav.load(Ordering::Relaxed) {
-                    flag_nav.store(true, Ordering::Relaxed);
-                    let app = app_close.clone();
-                    let label = label_close.clone();
-                    std::thread::spawn(move || {
-                        std::thread::sleep(std::time::Duration::from_millis(50));
-                        if let Some(popup) = app.get_webview_window(&label) {
-                            let _ = popup.close();
-                        }
-                        if let Some(main) = app.get_webview_window(X_WINDOW_LABEL) {
-                            let _ = main.show();
-                            let _ = main.set_focus();
-                            let _ = main.eval("window.location.reload();");
-                        }
-                    });
-                }
-                true
-            });
-
+            if is_signed_in() {
+                return NewWindowResponse::Deny;
+            }
+            #[cfg(target_os = "linux")]
+            {
+                let _ = features;
+                eprintln!(
+                    "[X-Now] Blocked WebKitGTK OAuth popup ({}); use in-window X sign-in",
+                    url
+                );
+                return NewWindowResponse::Deny;
+            }
+            #[cfg(target_os = "macos")]
+            {
+                let _ = features;
+                eprintln!("[X-Now] Allowing related-view OAuth login popup: {}", url);
+                NewWindowResponse::Allow
+            }
             #[cfg(windows)]
             {
-                builder = builder.with_environment(env);
-            }
+                let label = format!("popup-{}", POPUP_COUNTER.fetch_add(1, Ordering::Relaxed));
+                eprintln!("[X-Now] Intercepted OAuth login window: {}", url);
 
-            match builder.build() {
-                Ok(popup) => {
-                    if blank {
-                        // A window opened blank that nothing navigates would stay as an empty stray window.
-                        let stray = popup.clone();
+                let (w, h) = features
+                    .size()
+                    .map(|s| (s.width as f64, s.height as f64))
+                    .unwrap_or((540.0, 700.0));
+
+                let env = features.opener().environment.clone();
+
+                let blank = url.as_str() == "about:blank";
+                let app_close = popup_app.clone();
+                let label_close = label.clone();
+                let close_once = Arc::new(AtomicBool::new(false));
+                let flag_nav = close_once.clone();
+
+                let builder = WebviewWindowBuilder::new(
+                    &popup_app,
+                    label,
+                    WebviewUrl::External(url.clone()),
+                )
+                .title("X-Now — Sign in")
+                .inner_size(w.max(500.0), h.max(600.0))
+                .center()
+                .background_color(Color(15, 20, 25, 255))
+                .initialization_script(r#"
+                    (function() {
+                        var darkStyle = document.createElement('style');
+                        darkStyle.textContent = 'html, body { background-color: #0f1419 !important; color: #fff !important; }';
+                        (document.head || document.documentElement).appendChild(darkStyle);
+
+                        setInterval(function() {
+                            var host = location.hostname;
+                            var isX = host === 'x.com' || host.endsWith('.x.com') ||
+                                      host === 'twitter.com' || host.endsWith('.twitter.com');
+                            // OAuth redirects back to x.com once the token relay
+                            // (postMessage) has fired — the popup's job is done.
+                            if (isX) window.close();
+                        }, 300);
+                    })();
+                "#)
+                .on_navigation(move |nav_url| {
+                    let is_x = is_x_host(nav_url.host_str().unwrap_or(""));
+                    if is_x && !flag_nav.load(Ordering::Relaxed) {
+                        flag_nav.store(true, Ordering::Relaxed);
+                        let app = app_close.clone();
+                        let label = label_close.clone();
                         std::thread::spawn(move || {
-                            std::thread::sleep(std::time::Duration::from_secs(15));
-                            if stray.url().map_or(true, |u| u.as_str() == "about:blank") {
-                                let _ = stray.close();
+                            std::thread::sleep(std::time::Duration::from_millis(50));
+                            if let Some(popup) = app.get_webview_window(&label) {
+                                let _ = popup.close();
+                            }
+                            if let Some(main) = app.get_webview_window(X_WINDOW_LABEL) {
+                                let _ = main.show();
+                                let _ = main.set_focus();
+                                let _ = main.eval("window.location.reload();");
                             }
                         });
                     }
-                    NewWindowResponse::Create { window: popup }
-                }
-                Err(error) => {
-                    eprintln!("[X-Now] Could not open the sign-in window: {error}");
-                    NewWindowResponse::Allow
+                    true
+                })
+                .with_environment(env);
+
+                match builder.build() {
+                    Ok(popup) => {
+                        if blank {
+                            // A window opened blank that nothing navigates would stay as an empty stray window.
+                            let stray = popup.clone();
+                            std::thread::spawn(move || {
+                                std::thread::sleep(std::time::Duration::from_secs(15));
+                                if stray.url().map_or(true, |u| u.as_str() == "about:blank") {
+                                    let _ = stray.close();
+                                }
+                            });
+                        }
+                        NewWindowResponse::Create { window: popup }
+                    }
+                    Err(error) => {
+                        eprintln!("[X-Now] Could not open the sign-in window: {error}");
+                        NewWindowResponse::Allow
+                    }
                 }
             }
         } else if kind == NewWindow::MainWindow {
@@ -906,11 +1100,23 @@ pub fn launch_x_internal(app: &AppHandle, start_minimized: bool) -> Result<(), S
             }
             NewWindowResponse::Deny
         } else {
+            #[cfg(target_os = "linux")]
+            {
+                let app = popup_app.clone();
+                let target = url.clone();
+                std::thread::spawn(move || {
+                    if let Some(main) = app.get_webview_window(X_WINDOW_LABEL) {
+                        let _ = main.navigate(target);
+                    }
+                });
+                return NewWindowResponse::Deny;
+            }
+            #[cfg(not(target_os = "linux"))]
             NewWindowResponse::Allow
         }
     })
     .on_navigation(move |url| {
-        if is_x_host(url.host_str().unwrap_or("")) {
+        if is_allowed_in_page_navigation(&url) {
             return true;
         }
         // Same-window navigation to anything outside X (e.g. a redirect to an
@@ -929,37 +1135,42 @@ pub fn launch_x_internal(app: &AppHandle, start_minimized: bool) -> Result<(), S
     //     accounts.google.com forever, so the popup never closes itself.
     .on_document_title_changed(move |window, page_title| {
         let app = window.app_handle().clone();
+        let sync_cached_title = |win: &tauri::WebviewWindow| {
+            let cached = cache_for_title
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone();
+            let desired = cached.map_or_else(|| "X-Now".to_string(), |u| format!("X-Now (@{u})"));
+            let mut last = title_guard.lock().unwrap_or_else(|e| e.into_inner());
+            if *last != desired && win.set_title(&desired).is_ok() {
+                *last = desired;
+            }
+        };
+
         // Theme channel: the page tools ping `XNOWBG:r,g,b` when the theme's
-        // real background color is known/changes. The native background is
-        // re-synced so unpainted compositor gaps (scroll raster tiles,
-        // restore frames) never contrast with the rendered content.
+        // real background color is known/changes.
         if let Some(rgb) = page_title.strip_prefix("XNOWBG:") {
             apply_page_theme_background(&window, rgb);
-            // Restore the proper titlebar text at once — the ping payload must
-            // never flash up in the native title.
-            let cached = cache_for_title.lock().unwrap().clone();
-            let _ = window.set_title(&cached.map_or_else(
-                || "X-Now".to_string(),
-                |u| format!("X-Now (@{u})"),
-            ));
+            sync_cached_title(&window);
             return;
         }
-        // Diagnostic channel: the page tools report media-save failures via a
-        // XNOWERR: title — surfaced to the app log without touching the title.
+        // Diagnostic channels: restore the native title immediately so payloads
+        // never linger in the titlebar.
         if let Some(reason) = page_title.strip_prefix("XNOWERR:") {
             eprintln!("[X-Now] Media-save failure reported by page: {}", reason);
+            sync_cached_title(&window);
             return;
         }
-        // Success-side diagnostics: XNOWLOG:<json> — candidates + chosen URL.
         if let Some(summary) = page_title.strip_prefix("XNOWLOG:") {
             eprintln!("[X-Now] Media-save diagnostics: {}", summary);
+            sync_cached_title(&window);
             return;
         }
         if page_title == "XNOWOUT:" {
             report_session(false);
             eprintln!("[X-Now] Page reports signed out");
-            *cache_for_title.lock().unwrap() = None;
-            let _ = window.set_title("X-Now");
+            *cache_for_title.lock().unwrap_or_else(|e| e.into_inner()) = None;
+            sync_cached_title(&window);
             return;
         }
         if let Some(user) = page_title.strip_prefix("XNOW:") {
@@ -967,7 +1178,7 @@ pub fn launch_x_internal(app: &AppHandle, start_minimized: bool) -> Result<(), S
             let is_pure_numeric = !user.is_empty() && user.chars().all(|c| c.is_ascii_digit());
 
             if !user.is_empty() && !is_pure_numeric {
-                *cache_for_title.lock().unwrap() = Some(user.clone());
+                *cache_for_title.lock().unwrap_or_else(|e| e.into_inner()) = Some(user.clone());
             }
 
             // Only a completed sign-in closes the sign-in popups. A reload, or a
@@ -987,29 +1198,24 @@ pub fn launch_x_internal(app: &AppHandle, start_minimized: bool) -> Result<(), S
                 }
             }
 
-            // Deliberately no show()/set_focus(): this handler also runs after
-            // reloads, which must not un-hide a window the user sent to the tray.
-            // The OAuth success path shows the window itself.
-            let cached = cache_for_title.lock().unwrap().clone();
-            let new_title = if let Some(u) = cached {
-                format!("X-Now (@{})", u)
-            } else if !user.is_empty() && !is_pure_numeric {
-                format!("X-Now (@{})", user)
-            } else {
-                "X-Now".to_string()
-            };
-            let _ = window.set_title(&new_title);
+            sync_cached_title(&window);
         } else {
             // X's SPA overwrote the page title (route change, unread count…):
             // re-apply the cached signed-in handle so the titlebar stays put.
-            let cached = cache_for_title.lock().unwrap().clone();
-            if let Some(u) = cached {
-                let _ = window.set_title(&format!("X-Now (@{})", u));
-            }
+            sync_cached_title(&window);
         }
     })
     .build()
     .map_err(|error| error.to_string())?;
+
+    fit_window_to_work_area_on_monitor(
+        &window,
+        None,
+        DEFAULT_WINDOW_WIDTH,
+        DEFAULT_WINDOW_HEIGHT,
+        MIN_WINDOW_WIDTH,
+        MIN_WINDOW_HEIGHT,
+    );
 
     let initial = settings::get();
     if initial.zoom_percent != 100 {
@@ -1021,7 +1227,7 @@ pub fn launch_x_internal(app: &AppHandle, start_minimized: bool) -> Result<(), S
     #[cfg(windows)]
     set_big_window_icon(&window);
 
-    if !start_minimized {
+    if !start_minimized && !start_visible_now {
         window.show().map_err(|error| error.to_string())?;
         window.set_focus().map_err(|error| error.to_string())?;
     }
@@ -1146,8 +1352,8 @@ fn prepare_download_folder(app: AppHandle) -> Result<String, String> {
     Ok(download_dir.to_string_lossy().into_owned())
 }
 
-/// Image extension from the file's magic bytes. X serves jpg, png, webp and gif
-/// variants, so the saved name must follow the bytes, not the URL.
+/// Image extension from the file's magic bytes. X serves jpg, png, webp, avif,
+/// heic and gif variants, so the saved name must follow the bytes, not the URL.
 fn sniff_image_extension(head: &[u8]) -> &'static str {
     if head.starts_with(&[0x89, b'P', b'N', b'G']) {
         "png"
@@ -1155,8 +1361,48 @@ fn sniff_image_extension(head: &[u8]) -> &'static str {
         "gif"
     } else if head.len() >= 12 && &head[0..4] == b"RIFF" && &head[8..12] == b"WEBP" {
         "webp"
+    } else if head.len() >= 12 && &head[4..8] == b"ftyp" {
+        match &head[8..12] {
+            b"avif" | b"avis" => "avif",
+            b"heic" | b"heix" | b"mif1" | b"msf1" => "heic",
+            _ => "jpg",
+        }
+    } else if head.starts_with(b"BM") {
+        "bmp"
     } else {
         "jpg"
+    }
+}
+
+/// Inspects an already-written image file's magic bytes and renames it to a
+/// non-colliding path matching its true extension (never silently overwriting
+/// another saved file when the server ignores `?format=`).
+fn rename_to_sniffed_extension(target_path: &Path) -> PathBuf {
+    let mut head = [0_u8; 16];
+    let read = fs::File::open(target_path)
+        .and_then(|mut file| file.read(&mut head))
+        .unwrap_or(0);
+    let real_ext = sniff_image_extension(&head[..read]);
+    let mut candidate = target_path.with_extension(real_ext);
+    if candidate == target_path {
+        return target_path.to_path_buf();
+    }
+    if candidate.exists() {
+        let stem = target_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("X-Now");
+        let dir = target_path.parent().unwrap_or_else(|| Path::new("."));
+        let mut n = 2u32;
+        while candidate.exists() && n < 1000 {
+            candidate = dir.join(format!("{stem}-{n}.{real_ext}"));
+            n += 1;
+        }
+    }
+    if !candidate.exists() && fs::rename(target_path, &candidate).is_ok() {
+        candidate
+    } else {
+        target_path.to_path_buf()
     }
 }
 
@@ -1209,69 +1455,18 @@ async fn download_media(
         .unwrap_or_else(|| "https://x.com/".to_string());
 
     tauri::async_runtime::spawn_blocking(move || -> Result<String, String> {
-        // Windows ships `curl.exe`; macOS/Linux use the system `curl`.
-        // Windows ships curl in System32. The full path avoids running a curl.exe
-        // from the app or current folder, which a bare name would find first.
-        let curl = if cfg!(windows) {
-            let root = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_string());
-            format!("{root}\\System32\\curl.exe")
-        } else {
-            "curl".to_string()
+        let bytes_len = match downloader::curl_download_file(&url, &referer, None, &target_path) {
+            Ok(len) => len,
+            Err(err) => {
+                eprintln!(
+                    "[X-Now] download_media failed: url={} target={} err={}",
+                    url,
+                    target_path.display(),
+                    err
+                );
+                return Err(err);
+            }
         };
-        let mut command = Command::new(&curl);
-        command
-            .args([
-                "--fail",
-                "--location",
-                "--silent",
-                "--show-error",
-                "--retry",
-                "2",
-                "--connect-timeout",
-                "20",
-                "--max-time",
-                "300",
-                "--user-agent",
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                "--referer",
-            ])
-            .arg(referer)
-            .args(["--header", "Accept: */*", "--output"])
-            .arg(&target_path)
-            .arg(&url);
-        // Windows: spawn curl with CREATE_NO_WINDOW so no console window
-        // flashes next to the app during media downloads.
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            command.creation_flags(0x08000000);
-        }
-        let output = command
-            .output()
-            .map_err(|error| format!("Unable to start {curl}: {error}"))?;
-
-        if !output.status.success() {
-            let _ = fs::remove_file(&target_path);
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            eprintln!(
-                "[X-Now] download_media failed: url={} target={} status={} stderr={}",
-                url,
-                target_path.display(),
-                output.status,
-                stderr.trim()
-            );
-            return Err(format!(
-                "{curl} exited with status {}: {}",
-                output.status,
-                stderr.trim()
-            ));
-        }
-
-        let metadata = fs::metadata(&target_path).map_err(|error| error.to_string())?;
-        if metadata.len() == 0 {
-            let _ = fs::remove_file(&target_path);
-            return Err("The downloaded media file was empty.".to_string());
-        }
         if media_type.eq_ignore_ascii_case("video") {
             if let Err(error) = validate_mp4_file(&target_path) {
                 let _ = fs::remove_file(&target_path);
@@ -1283,21 +1478,12 @@ async fn download_media(
         let final_path = if media_type.eq_ignore_ascii_case("video") {
             target_path
         } else {
-            let mut head = [0_u8; 12];
-            let read = fs::File::open(&target_path)
-                .and_then(|mut file| file.read(&mut head))
-                .unwrap_or(0);
-            let corrected = target_path.with_extension(sniff_image_extension(&head[..read]));
-            if corrected != target_path && fs::rename(&target_path, &corrected).is_ok() {
-                corrected
-            } else {
-                target_path
-            }
+            rename_to_sniffed_extension(&target_path)
         };
 
         eprintln!(
             "[X-Now] download_media OK: {} bytes -> {} <- {}",
-            metadata.len(),
+            bytes_len,
             final_path.display(),
             url
         );
@@ -1360,9 +1546,763 @@ async fn save_media_bytes(
     .map_err(|error| error.to_string())?
 }
 
+// ── X-Now Downloader (adapted from IG-Now) ───────────────────────────────────
+
+fn sanitize_path_segment(raw: &str) -> String {
+    let cleaned: String = raw
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let trimmed = cleaned.trim_matches(|c| c == '.' || c == '_');
+    if trimmed.is_empty() || trimmed == "." || trimmed == ".." {
+        String::new()
+    } else {
+        let capped: String = trimmed.chars().take(80).collect();
+        if downloader::is_windows_reserved_stem(&capped) {
+            format!("_{capped}")
+        } else {
+            capped
+        }
+    }
+}
+
+fn downloader_target_path(
+    app: &AppHandle,
+    ext: &str,
+    subfolder: Option<&str>,
+    file_stem: Option<&str>,
+) -> Result<PathBuf, String> {
+    let mut dir = download_base_dir(app)?.join("X-Now");
+    if let Some(sub) = subfolder
+        .map(sanitize_path_segment)
+        .filter(|s| !s.is_empty())
+    {
+        dir = dir.join(sub);
+    }
+    fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
+    let stem = file_stem
+        .map(sanitize_path_segment)
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| {
+            let ts = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_millis())
+                .unwrap_or(0);
+            format!("X-Now-{ts}")
+        });
+    let mut candidate = dir.join(format!("{stem}.{ext}"));
+    if candidate.exists() {
+        let mut n = 2u32;
+        while candidate.exists() && n < 1000 {
+            candidate = dir.join(format!("{stem}-{n}.{ext}"));
+            n += 1;
+        }
+    }
+    Ok(candidate)
+}
+
+fn item_slide_stem(base: &str, item_index: usize, item_count: usize) -> String {
+    if item_count >= 10 {
+        format!("{base}-item-{:02}", item_index + 1)
+    } else if item_count > 1 {
+        format!("{base}-item-{}", item_index + 1)
+    } else {
+        base.to_string()
+    }
+}
+
+fn x_auth_headers(app: &AppHandle) -> (Option<String>, Option<String>) {
+    let mut pairs = Vec::new();
+    if let Some(win) = app.get_webview_window(X_WINDOW_LABEL) {
+        if let Ok(x_url) = "https://x.com/".parse() {
+            if let Ok(cookies) = win.cookies_for_url(x_url) {
+                for cookie in cookies {
+                    pairs.push((cookie.name().to_string(), cookie.value().to_string()));
+                }
+            }
+        }
+    }
+    downloader::cookie_header_and_ct0_from_pairs(&pairs)
+}
+
+fn curl_download_to_file(
+    url: &str,
+    referer: &str,
+    cookie_header: Option<&str>,
+    target_path: &Path,
+) -> Result<(), String> {
+    downloader::curl_download_file(url, referer, cookie_header, target_path).map(|_| ())
+}
+
+fn fetch_downloader_media_to_path(
+    url: &str,
+    kind: &str,
+    target_ext: &str,
+    referer: &str,
+    cookie_header: Option<&str>,
+    target_path: &Path,
+) -> Result<PathBuf, String> {
+    if kind == "video" || kind == "gif" {
+        if url.contains(".m3u8") {
+            let ffmpeg = downloader::find_ffmpeg_binary()
+                .ok_or_else(|| "FFmpeg is required to download HLS video streams.".to_string())?;
+            downloader::download_hls_to_mp4_ffmpeg(&ffmpeg, url, target_path)?;
+            validate_mp4_file(&target_path.to_path_buf()).map_err(|e| {
+                let _ = fs::remove_file(target_path);
+                e
+            })?;
+            return Ok(target_path.to_path_buf());
+        }
+        if kind == "gif" && target_ext == "gif" {
+            let ffmpeg = downloader::find_ffmpeg_binary()
+                .ok_or_else(|| "FFmpeg is required to export .gif files.".to_string())?;
+            let temp_mp4 = downloader::unique_temp_media_path("gif-src", "mp4");
+            curl_download_to_file(url, referer, cookie_header, &temp_mp4)?;
+            let res = downloader::convert_mp4_to_gif_ffmpeg(&ffmpeg, &temp_mp4, target_path);
+            let _ = fs::remove_file(&temp_mp4);
+            res?;
+            return Ok(target_path.to_path_buf());
+        }
+        curl_download_to_file(url, referer, cookie_header, target_path)?;
+        if let Err(err) = validate_mp4_file(&target_path.to_path_buf()) {
+            let _ = fs::remove_file(target_path);
+            return Err(err);
+        }
+        return Ok(target_path.to_path_buf());
+    }
+
+    curl_download_to_file(url, referer, cookie_header, target_path)?;
+    if matches!(target_ext, "jpg" | "png") {
+        let mut head = [0_u8; 16];
+        let read = fs::File::open(target_path)
+            .and_then(|mut file| file.read(&mut head))
+            .unwrap_or(0);
+        let actual_ext = sniff_image_extension(&head[..read]);
+        if actual_ext != target_ext {
+            if let Some(ffmpeg) = downloader::find_ffmpeg_binary() {
+                let ts = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map(|d| d.as_nanos())
+                    .unwrap_or(0);
+                let stem_name = target_path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("xnow-img");
+                let parent = target_path.parent().unwrap_or_else(|| Path::new("."));
+                let temp_raw = parent.join(format!(".{stem_name}.{ts}.{actual_ext}"));
+                if fs::rename(target_path, &temp_raw).is_ok() {
+                    let conv = downloader::convert_image_ffmpeg(
+                        &ffmpeg,
+                        &temp_raw,
+                        target_path,
+                        target_ext,
+                    );
+                    if conv.is_ok() {
+                        let _ = fs::remove_file(&temp_raw);
+                        return Ok(target_path.to_path_buf());
+                    }
+                    let _ = fs::rename(&temp_raw, target_path);
+                }
+            }
+        } else {
+            return Ok(target_path.to_path_buf());
+        }
+    }
+    Ok(rename_to_sniffed_extension(target_path))
+}
+
+#[tauri::command]
+fn open_downloads_folder(app: AppHandle) -> Result<(), String> {
+    let path = prepare_download_folder(app.clone())?;
+    app.shell().open(path, None).map_err(|e| e.to_string())
+}
+
+pub fn open_downloader_window_internal(
+    app: &AppHandle,
+    url: Option<String>,
+    payload_json: Option<String>,
+    item_index: Option<usize>,
+    item_hint: Option<String>,
+    theme: Option<String>,
+) -> Result<(), String> {
+    let clean_url = url.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    let clean_payload = payload_json
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    let clean_hint = item_hint
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    let clean_theme = theme
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    if clean_url.is_some()
+        || clean_payload.is_some()
+        || item_index.is_some()
+        || clean_hint.is_some()
+        || clean_theme.is_some()
+    {
+        let probe_state = app.state::<downloader::DownloaderProbeState>();
+        probe_state.set_pending_open(Some(downloader::PendingDownloadOpen {
+            url: clean_url.unwrap_or_default(),
+            payload_json: clean_payload,
+            item_index,
+            item_hint: clean_hint,
+            theme: clean_theme,
+        }));
+    }
+
+    let x_monitor = app
+        .get_webview_window(X_WINDOW_LABEL)
+        .and_then(|w| w.current_monitor().ok().flatten());
+
+    if let Some(window) = app.get_webview_window(DOWNLOADER_WINDOW_LABEL) {
+        let hidden_or_min =
+            !window.is_visible().unwrap_or(true) || window.is_minimized().unwrap_or(false);
+        let _ = window.unminimize();
+        if hidden_or_min {
+            fit_window_to_work_area_on_monitor(
+                &window,
+                x_monitor,
+                DOWNLOADER_WINDOW_WIDTH,
+                DOWNLOADER_WINDOW_HEIGHT,
+                DOWNLOADER_MIN_WIDTH,
+                DOWNLOADER_MIN_HEIGHT,
+            );
+        }
+        let _ = window.show();
+        let _ = window.set_focus();
+        let _ = window
+            .eval("if (window.__xnowLoadDownloaderContext) window.__xnowLoadDownloaderContext();");
+        return Ok(());
+    }
+
+    let dl_visible_now = cfg!(target_os = "linux");
+    let dl_win = WebviewWindowBuilder::new(
+        app,
+        DOWNLOADER_WINDOW_LABEL,
+        WebviewUrl::App("downloader.html".into()),
+    )
+    .title("X-Now Downloader")
+    .inner_size(DOWNLOADER_WINDOW_WIDTH, DOWNLOADER_WINDOW_HEIGHT)
+    .min_inner_size(DOWNLOADER_MIN_WIDTH, DOWNLOADER_MIN_HEIGHT)
+    .resizable(true)
+    .center()
+    .visible(dl_visible_now)
+    .background_color(Color(15, 20, 25, 255))
+    .build()
+    .map_err(|error| error.to_string())?;
+    fit_window_to_work_area_on_monitor(
+        &dl_win,
+        x_monitor,
+        DOWNLOADER_WINDOW_WIDTH,
+        DOWNLOADER_WINDOW_HEIGHT,
+        DOWNLOADER_MIN_WIDTH,
+        DOWNLOADER_MIN_HEIGHT,
+    );
+    if !dl_visible_now {
+        let _ = dl_win.show();
+        let _ = dl_win.set_focus();
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn open_downloader_window(
+    app: AppHandle,
+    url: Option<String>,
+    payload_json: Option<String>,
+    item_index: Option<usize>,
+    item_hint: Option<String>,
+    theme: Option<String>,
+) -> Result<(), String> {
+    open_downloader_window_internal(&app, url, payload_json, item_index, item_hint, theme)
+}
+
+#[tauri::command]
+fn take_pending_downloader_context(
+    state: tauri::State<'_, downloader::DownloaderProbeState>,
+) -> Option<downloader::PendingDownloadOpen> {
+    state.take_pending_open()
+}
+
+#[tauri::command]
+fn submit_downloader_probe(
+    state: tauri::State<'_, downloader::DownloaderProbeState>,
+    request_id: String,
+    payload_json: String,
+) -> bool {
+    state.resolve_probe(&request_id, payload_json)
+}
+
+async fn probe_post_via_x_window(
+    app: &AppHandle,
+    probe_state: &tauri::State<'_, downloader::DownloaderProbeState>,
+    clean_input: &str,
+    tweet_id: Option<&str>,
+    username_hint: Option<&str>,
+    has_ffmpeg: bool,
+) -> Option<downloader::InspectedPost> {
+    let x_win = app.get_webview_window(X_WINDOW_LABEL)?;
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let request_id = format!("probe-{nanos}");
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    probe_state.register_probe(request_id.clone(), tx);
+
+    let url_json = serde_json::to_string(clean_input).ok()?;
+    let req_json = serde_json::to_string(&request_id).ok()?;
+    let script = format!(
+        "if (window.__xnowTools && window.__xnowTools.probePostForDownloader) window.__xnowTools.probePostForDownloader({req_json}, {url_json});"
+    );
+    if x_win.eval(&script).is_err() {
+        probe_state.cancel_probe(&request_id);
+        return None;
+    }
+    let waited = tokio::time::timeout(std::time::Duration::from_secs(12), rx).await;
+    probe_state.cancel_probe(&request_id);
+    if let Ok(Ok(raw_payload)) = waited {
+        return downloader::extract_post_from_json_text(&raw_payload, tweet_id, has_ffmpeg)
+            .or_else(|| {
+                downloader::extract_post_from_html(
+                    &raw_payload,
+                    tweet_id,
+                    username_hint,
+                    has_ffmpeg,
+                )
+            });
+    }
+    None
+}
+
+#[tauri::command]
+async fn inspect_x_post(
+    app: AppHandle,
+    probe_state: tauri::State<'_, downloader::DownloaderProbeState>,
+    url: String,
+    seed_payload_json: Option<String>,
+) -> Result<downloader::InspectedPost, String> {
+    let clean_input = url.trim().to_string();
+    let tweet_id = downloader::tweet_id_from_url(&clean_input);
+    let user_hint = downloader::username_from_url(&clean_input);
+    let has_ffmpeg = downloader::find_ffmpeg_binary().is_some();
+
+    let seed_post = seed_payload_json
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+        .and_then(|seed| {
+            downloader::extract_post_from_json_text(seed, tweet_id.as_deref(), has_ffmpeg)
+        });
+
+    let (cookie_header, ct0_token) = x_auth_headers(&app);
+    let input_for_http = clean_input.clone();
+    let http_res = tauri::async_runtime::spawn_blocking(move || {
+        downloader::inspect_via_http_cascade(
+            &input_for_http,
+            cookie_header.as_deref(),
+            ct0_token.as_deref(),
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+
+    if let Ok(post) = http_res {
+        let mut best = match seed_post {
+            Some(seed) => downloader::pick_richer_inspected_post(post, seed),
+            None => post,
+        };
+        if best.username.is_empty() && best.items.len() <= 1 {
+            if let Some(probed) = probe_post_via_x_window(
+                &app,
+                &probe_state,
+                &clean_input,
+                tweet_id.as_deref(),
+                user_hint.as_deref(),
+                has_ffmpeg,
+            )
+            .await
+            {
+                best = downloader::pick_richer_inspected_post(best, probed);
+            }
+        }
+        return Ok(best);
+    }
+
+    if let Some(post) = seed_post {
+        return Ok(post);
+    }
+
+    if let Some(post) = probe_post_via_x_window(
+        &app,
+        &probe_state,
+        &clean_input,
+        tweet_id.as_deref(),
+        user_hint.as_deref(),
+        has_ffmpeg,
+    )
+    .await
+    {
+        return Ok(post);
+    }
+
+    http_res
+}
+
+#[tauri::command]
+async fn save_post_text(
+    app: AppHandle,
+    post: downloader::InspectedPost,
+    custom_text: Option<String>,
+    subfolder: Option<String>,
+    file_stem: Option<String>,
+) -> Result<String, String> {
+    let mut final_post = post;
+    if let Some(txt) = custom_text {
+        final_post.text = txt;
+    }
+    let stem = file_stem.unwrap_or_else(|| {
+        downloader::build_source_filename_stem(
+            &final_post.username,
+            &final_post.created_at,
+            &final_post.tweet_id,
+        )
+    });
+    let doc = downloader::format_post_document(&final_post);
+    let target_path = downloader_target_path(&app, "txt", subfolder.as_deref(), Some(&stem))?;
+    tauri::async_runtime::spawn_blocking(move || -> Result<String, String> {
+        fs::write(&target_path, doc.as_bytes()).map_err(|e| e.to_string())?;
+        Ok(target_path.to_string_lossy().into_owned())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn download_post_selection(
+    app: AppHandle,
+    post: downloader::InspectedPost,
+    item_index: usize,
+    format_id: Option<String>,
+    mode: String,
+    custom_text: Option<String>,
+) -> Result<downloader::DownloadOutcome, String> {
+    let mut final_post = post;
+    if let Some(txt) = custom_text {
+        final_post.text = txt;
+    }
+    if mode.eq_ignore_ascii_case("text") || mode.eq_ignore_ascii_case("caption") {
+        let text_path = save_post_text(app, final_post, None, None, None).await?;
+        return Ok(downloader::DownloadOutcome {
+            saved_paths: Vec::new(),
+            text_path: Some(text_path),
+            metadata_path: None,
+            subfolder: None,
+            warning: None,
+        });
+    }
+    if final_post.items.is_empty() {
+        return Err("No downloadable media items found in this X post.".to_string());
+    }
+
+    let referer = if is_safe_http_url(&final_post.post_url) {
+        final_post.post_url.clone()
+    } else {
+        "https://x.com/".to_string()
+    };
+    let (cookie_header, _) = x_auth_headers(&app);
+
+    if mode.eq_ignore_ascii_case("audio") {
+        let item = final_post
+            .items
+            .get(item_index)
+            .or_else(|| final_post.items.first())
+            .ok_or_else(|| "Selected media item not found.".to_string())?;
+        if item.kind != "video" {
+            return Err("Audio Only (.m4a) is available for video items.".to_string());
+        }
+        let chosen = format_id
+            .as_deref()
+            .and_then(|id| item.formats.iter().find(|f| f.id == id))
+            .or_else(|| item.formats.first())
+            .ok_or_else(|| "No downloadable video stream found.".to_string())?;
+        let ffmpeg = downloader::find_ffmpeg_binary()
+            .ok_or_else(|| "FFmpeg is required to extract Audio Only (.m4a) files.".to_string())?;
+        let base_stem = downloader::build_source_filename_stem(
+            &final_post.username,
+            &final_post.created_at,
+            &final_post.tweet_id,
+        );
+        let stem = item_slide_stem(&base_stem, item.index, final_post.items.len());
+        let target_path = downloader_target_path(&app, "m4a", None, Some(&stem))?;
+        let target_str = target_path.to_string_lossy().into_owned();
+        let src_url = chosen.video_url.clone();
+        tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+            let temp_v = downloader::unique_temp_media_path("xaudio", "mp4");
+            if src_url.contains(".m3u8") {
+                downloader::download_hls_to_mp4_ffmpeg(&ffmpeg, &src_url, &temp_v)?;
+            } else {
+                curl_download_to_file(&src_url, &referer, cookie_header.as_deref(), &temp_v)?;
+            }
+            let res = downloader::extract_audio_aac_m4a_ffmpeg(&ffmpeg, &temp_v, &target_path);
+            let _ = fs::remove_file(&temp_v);
+            res
+        })
+        .await
+        .map_err(|e| e.to_string())??;
+        settings::record_save("audio", &target_str);
+        return Ok(downloader::DownloadOutcome {
+            saved_paths: vec![target_str],
+            text_path: None,
+            metadata_path: None,
+            subfolder: None,
+            warning: None,
+        });
+    }
+
+    if mode.eq_ignore_ascii_case("single") {
+        let item = final_post
+            .items
+            .get(item_index)
+            .or_else(|| final_post.items.first())
+            .ok_or_else(|| "Selected media item not found.".to_string())?;
+        let chosen = format_id
+            .as_deref()
+            .and_then(|id| item.formats.iter().find(|f| f.id == id))
+            .or_else(|| item.formats.first())
+            .ok_or_else(|| "No downloadable format available for this item.".to_string())?;
+
+        let base_stem = downloader::build_source_filename_stem(
+            &final_post.username,
+            &final_post.created_at,
+            &final_post.tweet_id,
+        );
+        let stem = item_slide_stem(&base_stem, item.index, final_post.items.len());
+        let target_path = downloader_target_path(&app, &chosen.ext, None, Some(&stem))?;
+        let kind = item.kind.clone();
+        let ext = chosen.ext.clone();
+        let candidates: Vec<(String, String)> =
+            std::iter::once((chosen.video_url.clone(), ext.clone()))
+                .chain(
+                    item.formats
+                        .iter()
+                        .filter(|f| {
+                            f.video_url != chosen.video_url
+                                && (kind == "image" || f.ext == chosen.ext)
+                        })
+                        .map(|f| (f.video_url.clone(), f.ext.clone())),
+                )
+                .collect();
+
+        let saved_path =
+            tauri::async_runtime::spawn_blocking(move || -> Result<PathBuf, String> {
+                let mut last_err = String::new();
+                for (cand_url, cand_ext) in candidates {
+                    let mut cand_target = target_path.with_extension(&cand_ext);
+                    if cand_target != target_path && cand_target.exists() {
+                        let base = target_path
+                            .file_stem()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("X-Now");
+                        let dir = target_path.parent().unwrap_or_else(|| Path::new("."));
+                        let mut n = 2u32;
+                        while cand_target.exists() && n < 1000 {
+                            cand_target = dir.join(format!("{base}-{n}.{cand_ext}"));
+                            n += 1;
+                        }
+                    }
+                    match fetch_downloader_media_to_path(
+                        &cand_url,
+                        &kind,
+                        &cand_ext,
+                        &referer,
+                        cookie_header.as_deref(),
+                        &cand_target,
+                    ) {
+                        Ok(final_p) => return Ok(final_p),
+                        Err(e) => {
+                            last_err = e;
+                            let _ = fs::remove_file(&cand_target);
+                        }
+                    }
+                }
+                Err(if last_err.is_empty() {
+                    "Download failed.".to_string()
+                } else {
+                    last_err
+                })
+            })
+            .await
+            .map_err(|e| e.to_string())??;
+
+        let saved_str = saved_path.to_string_lossy().into_owned();
+        let record_kind = if item.kind == "video" || item.kind == "gif" {
+            "video"
+        } else {
+            "image"
+        };
+        settings::record_save(record_kind, &saved_str);
+        return Ok(downloader::DownloadOutcome {
+            saved_paths: vec![saved_str],
+            text_path: None,
+            metadata_path: None,
+            subfolder: None,
+            warning: None,
+        });
+    }
+
+    // Bundle mode: download all media items + post.txt + metadata.json into subfolder.
+    let post_stem = downloader::build_source_filename_stem(
+        &final_post.username,
+        &final_post.created_at,
+        &final_post.tweet_id,
+    );
+    let subfolder = post_stem.clone();
+    let item_count = final_post.items.len();
+    let mut indexed_results: Vec<(usize, String, Result<PathBuf, String>)> =
+        Vec::with_capacity(item_count);
+    let mut join_set = tokio::task::JoinSet::new();
+
+    let emit_progress = |completed: usize| {
+        if let Some(dl_win) = app.get_webview_window(DOWNLOADER_WINDOW_LABEL) {
+            let _ = dl_win.emit(
+                "downloader-progress",
+                serde_json::json!({ "completed": completed, "total": item_count }),
+            );
+        }
+    };
+
+    for (idx, item) in final_post.items.iter().enumerate() {
+        let chosen = if idx == item_index {
+            format_id
+                .as_deref()
+                .and_then(|id| item.formats.iter().find(|f| f.id == id))
+                .or_else(|| item.formats.first())
+        } else {
+            item.formats.first()
+        };
+        let Some(fmt) = chosen else {
+            continue;
+        };
+        let stem = item_slide_stem(&post_stem, idx, item_count);
+        let target_path = downloader_target_path(&app, &fmt.ext, Some(&subfolder), Some(&stem))?;
+        let kind = item.kind.clone();
+        let v_url = fmt.video_url.clone();
+        let ext = fmt.ext.clone();
+        let ref_clone = referer.clone();
+        let cookie_clone = cookie_header.clone();
+
+        while join_set.len() >= 6 {
+            if let Some(joined) = join_set.join_next().await {
+                indexed_results.push(joined.map_err(|e| e.to_string())?);
+                emit_progress(indexed_results.len());
+            }
+        }
+        join_set.spawn_blocking(move || {
+            let res = fetch_downloader_media_to_path(
+                &v_url,
+                &kind,
+                &ext,
+                &ref_clone,
+                cookie_clone.as_deref(),
+                &target_path,
+            );
+            (idx, kind, res)
+        });
+    }
+
+    while let Some(joined) = join_set.join_next().await {
+        indexed_results.push(joined.map_err(|e| e.to_string())?);
+        emit_progress(indexed_results.len());
+    }
+
+    indexed_results.sort_by_key(|(idx, _, _)| *idx);
+    let mut saved_paths = Vec::new();
+    let mut failed_items = Vec::new();
+    let mut first_err = None;
+    for (idx, kind, res) in indexed_results {
+        match res {
+            Ok(p) => {
+                let s = p.to_string_lossy().into_owned();
+                let record_kind = if kind == "video" || kind == "gif" {
+                    "video"
+                } else {
+                    "image"
+                };
+                settings::record_save(record_kind, &s);
+                saved_paths.push(s);
+            }
+            Err(e) => {
+                failed_items.push((idx + 1).to_string());
+                if first_err.is_none() {
+                    first_err = Some(e);
+                }
+            }
+        }
+    }
+
+    let warning = if !failed_items.is_empty() {
+        Some(format!(
+            "Items [{}] failed ({}).",
+            failed_items.join(", "),
+            first_err.unwrap_or_default()
+        ))
+    } else {
+        None
+    };
+
+    let text_path = save_post_text(
+        app.clone(),
+        final_post.clone(),
+        None,
+        Some(subfolder.clone()),
+        Some("post".to_string()),
+    )
+    .await
+    .ok();
+
+    let metadata_path = match downloader::build_metadata_json(&final_post) {
+        Ok(meta_json) => {
+            if let Ok(meta_target) =
+                downloader_target_path(&app, "json", Some(&subfolder), Some("metadata"))
+            {
+                tauri::async_runtime::spawn_blocking(move || {
+                    fs::write(&meta_target, meta_json.as_bytes()).ok()?;
+                    Some(meta_target.to_string_lossy().into_owned())
+                })
+                .await
+                .ok()
+                .flatten()
+            } else {
+                None
+            }
+        }
+        Err(_) => None,
+    };
+
+    if saved_paths.is_empty() && text_path.is_none() {
+        return Err(warning.unwrap_or_else(|| "Post download failed.".to_string()));
+    }
+
+    Ok(downloader::DownloadOutcome {
+        saved_paths,
+        text_path,
+        metadata_path,
+        subfolder: Some(subfolder),
+        warning,
+    })
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(downloader::DownloaderProbeState::default())
         // A second launch brings the running window forward instead of starting a
         // second process, which would share the profile and fight over settings.json.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -1382,11 +2322,18 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             open_external_url,
             prepare_download_folder,
+            open_downloads_folder,
             download_media,
             save_media_bytes,
             get_settings,
             update_settings,
-            open_saved_folder
+            open_saved_folder,
+            open_downloader_window,
+            take_pending_downloader_context,
+            inspect_x_post,
+            submit_downloader_probe,
+            download_post_selection,
+            save_post_text
         ])
         .setup(|app| {
             if let Err(error) = tray::setup_tray(app.handle()) {
@@ -1548,6 +2495,9 @@ mod tests {
         );
         assert_eq!(sniff_image_extension(b"RIFF\0\0\0\0WEBPVP8 "), "webp");
         assert_eq!(sniff_image_extension(b"GIF89a"), "gif");
+        assert_eq!(sniff_image_extension(b"\0\0\0\x1cftypavif"), "avif");
+        assert_eq!(sniff_image_extension(b"\0\0\0\x1cftypheic"), "heic");
+        assert_eq!(sniff_image_extension(b"BM\0\0\0\0"), "bmp");
         assert_eq!(sniff_image_extension(&[0xFF, 0xD8, 0xFF, 0xE0]), "jpg");
         // Short or unreadable heads fall back to the old default.
         assert_eq!(sniff_image_extension(b"RIFF"), "jpg");
@@ -1777,5 +2727,28 @@ mod tests {
             Some(Color(15, 20, 25, 255))
         );
         assert_eq!(parse_css_color_to_native("1,2,3,4"), None);
+    }
+
+    #[test]
+    fn sanitize_path_segment_prefixes_windows_reserved_names() {
+        assert_eq!(sanitize_path_segment("CON"), "_CON");
+        assert_eq!(sanitize_path_segment("nul.txt"), "_nul.txt");
+        assert_eq!(sanitize_path_segment("COM1"), "_COM1");
+        assert_eq!(sanitize_path_segment("../evil"), "evil");
+    }
+
+    #[test]
+    fn navigation_allows_internal_schemes_and_embedded_auth_frames() {
+        assert!(is_allowed_in_page_navigation(&url("about:blank")));
+        assert!(is_allowed_in_page_navigation(&url("https://x.com/home")));
+        assert!(is_allowed_in_page_navigation(&url(
+            "https://accounts.google.com/gsi/button?theme=outline"
+        )));
+        assert!(!is_allowed_in_page_navigation(&url(
+            "https://accounts.google.com/o/oauth2/v2/auth"
+        )));
+        assert!(!is_allowed_in_page_navigation(&url(
+            "https://example.com/article"
+        )));
     }
 }

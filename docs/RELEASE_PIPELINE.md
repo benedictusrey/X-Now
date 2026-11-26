@@ -12,7 +12,7 @@ The workflow is [`.github/workflows/release.yml`](../.github/workflows/release.y
 
 | Input | Example | Meaning |
 |---|---|---|
-| `release_tag` | `v2.5.0` | The release tag. It must equal the version in every manifest (see below). |
+| `release_tag` | `v2.6.0` | The release tag. It must equal the version in every manifest (see below). |
 | `publish_release` | `true` | `true` creates a **draft** GitHub Release with the verified assets. `false` only builds and keeps the artifacts. |
 
 Run it on the branch that holds the release commit (normally `main`, or the release branch before it is merged).
@@ -54,26 +54,26 @@ It also requires:
 Run these locally and fix anything that fails:
 
 ```bash
-cd src-tauri && cargo fmt --all -- --check && cargo check && cargo test --lib
-cd .. && npm run test:js && npm run test:ui
+cd src-tauri && cargo fmt --all -- --check && cargo check && cd ..
+npm run test:all
 ```
 
 Also confirm that `icons/` and `src-tauri/icons/` are identical. Every build job checks this byte for byte and fails if they differ.
 
-Commit the release (notes, manifests, icons, `dist/checksums.txt` and `dist/X-Now_vX.Y.Z.exe`), push it to `main`, and then start the workflow. Do not create the tag before the draft is verified; publishing creates it (see After the run).
+Commit the release (notes, manifests, icons), push it to `main`, and then start the workflow. Do not create the tag before the draft is verified; publishing creates it (see After the run).
 
 ## Release assets
 
-When every job succeeds, `publish` attaches these files to the draft release. Names use the version from `release_tag`, shown here for `2.5.0`:
+When every job succeeds, `publish` attaches these files to the draft release. Names use the version from `release_tag`, shown here for `2.6.0`:
 
 ```text
-X-Now_2.5.0_windows_x64-setup.exe       Windows NSIS installer
-X-Now_2.5.0_windows_x64_en-US.msi       Windows MSI installer
-X-Now_2.5.0_windows_x64-portable.exe    Windows standalone program, no install
-X-Now_2.5.0_universal.dmg               macOS universal DMG (arm64 + x86_64)
-X-Now_2.5.0_amd64.AppImage              Linux AppImage (most distributions)
-X-Now_2.5.0_amd64.deb                   Debian and Ubuntu package
-X-Now_2.5.0_x86_64.rpm                  Fedora, RHEL and openSUSE package
+X-Now_2.6.0_windows_x64-setup.exe       Windows NSIS installer
+X-Now_2.6.0_windows_x64_en-US.msi       Windows MSI installer
+X-Now_2.6.0_windows_x64-portable.exe    Windows standalone program, no install
+X-Now_2.6.0_universal.dmg               macOS universal DMG (arm64 + x86_64)
+X-Now_2.6.0_amd64.AppImage              Linux AppImage (most distributions)
+X-Now_2.6.0_amd64.deb                   Debian and Ubuntu package
+X-Now_2.6.0_x86_64.rpm                  Fedora, RHEL and openSUSE package
 SHA256SUMS.txt                          SHA-256 for all seven files above
 ```
 
@@ -84,7 +84,7 @@ SHA256SUMS.txt                          SHA-256 for all seven files above
 Windows (PowerShell):
 
 ```powershell
-Get-FileHash .\X-Now_2.5.0_windows_x64-setup.exe -Algorithm SHA256
+Get-FileHash .\X-Now_2.6.0_windows_x64-setup.exe -Algorithm SHA256
 ```
 
 Linux and macOS (terminal):
@@ -99,7 +99,7 @@ Compare the printed hash with `SHA256SUMS.txt`, or let the checker print `OK` fo
 
 ## After the run
 
-1. Open **Releases** on the repository. The draft **X-Now 2.5.0** has the assets and the notes from `docs/releases/X-Now_v2.5.0.md`.
+1. Open **Releases** on the repository. The draft **X-Now 2.6.0** has the assets and the notes from `docs/releases/X-Now_v2.6.0.md`.
 2. Check the notes and the asset list.
 3. Publish the release yourself. Publishing is a manual step.
 4. Publishing creates the tag `vX.Y.Z` on the commit `main` points to. Before you publish, confirm `main` still points to the release commit. Pushing a `v*` tag does **not** start this workflow.

@@ -1,3 +1,23 @@
+# Release Notes: X-Now v2.6.0
+
+Native **X-Now Downloader** (accessible from the top-left rail to the left of **Refresh feed**, right-click context menu, tray **Tools**, and `Ctrl/Cmd+Shift+D`), multi-platform stability fixes, and memory/CPU optimizations across Windows, Linux, and macOS.
+
+**Download:** [v2.6.0 release page](https://github.com/benedictusrey/X-Now/releases/tag/v2.6.0). File verification instructions are in [docs/releases/X-Now_v2.6.0.md](docs/releases/X-Now_v2.6.0.md).
+
+## What's new
+
+- **X-Now Downloader:** save single photos, HD MP4/HLS videos, animated GIFs, `.m4a` audio tracks (via FFmpeg), editable post text (`.txt`), or complete post bundles (`post.txt` + `metadata.json` + media) from X/Twitter URLs or active feed posts (`Ctrl/Cmd+Shift+D`).
+- **Built-in Image Zoom Slider & Shortcuts:** `Ctrl/Cmd+click` (or right-click → *View / Zoom image*) opens a `10%–400%` zoom viewer with drag-to-pan, mouse-wheel zoom, and keyboard shortcuts (`+`/`−`, `0`/`F` fit, `1` actual size, arrows pan, `Esc` close); Downloader image previews include a `100%–400%` zoom bar as well.
+- **High-compatibility downloads:** prefers universal `JPG` over `WebP` (while keeping `PNG` lossless when native), fixes HLS `.m3u8` → `.mp4` audio playback (`aac_adtstoasc`), produces compact looped GIFs, and guards Windows reserved filenames safely across platforms.
+- **Top-left rail Downloader icon:** sits directly left of **Refresh feed** with adaptive sizing on compact sidebars and `Dim` / `Black` / `Light` theme support.
+- **Performance & memory optimizations:** single filtered DOM observer, eliminated per-scroll regex/array churn, suspended hidden timers/theme probes, linear `O(N)` audio process-tree discovery, reduced watchdog wakeups, and gated startup diagnostics behind `--webview-diagnostics`.
+
+## Fixed
+
+- Wayland minimize/hide detection bug, Linux WebKitGTK Wayland/DMA-BUF video freeze & compositing clipping guards, broken Linux OAuth popup loop (plus already-signed-in popup suppression across platforms), internal/embedded OAuth frame navigation, AppImage GStreamer `bundleMediaFramework`, Windows `CreateToolhelp32Snapshot` handle leak, cross-filesystem FFmpeg temp rename fix, `pbs.twimg.com` `.jpg`/`.png` suffix normalization, silent GIF audio guard, WCAG AA contrast & touch/keyboard zoom polish, WebView2 `TrySuspend()` pause-before-suspend race, settings write lock fallback on Windows, serialized async settings saves, and diagnostic prefixes leaking into the window titlebar.
+
+---
+
 # Release Notes: X-Now v2.5.0
 
 Settings panel, Quiet hours, unmuted videos while X-Now is active, and fixes for sign-in, video sound on Windows, the Task Manager icon and scroll flashes.

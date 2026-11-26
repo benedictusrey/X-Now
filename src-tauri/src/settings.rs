@@ -181,9 +181,17 @@ fn write_file(file: &Path, settings: &Settings) {
         return;
     };
     // Write beside the target, then rename, so a crash cannot leave half a file.
+    // On Windows an indexer or AV scan can briefly lock the target; fall back to
+    // a direct write and always clean up the temp file.
+    if let Some(parent) = file.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
     let temp = file.with_extension("json.tmp");
-    if fs::write(&temp, json).is_ok() && fs::rename(&temp, file).is_err() {
-        eprintln!("[X-Now] Could not save settings to {}", file.display());
+    if fs::write(&temp, &json).is_ok() && fs::rename(&temp, file).is_err() {
+        let _ = fs::remove_file(&temp);
+        if fs::write(file, &json).is_err() {
+            eprintln!("[X-Now] Could not save settings to {}", file.display());
+        }
     }
 }
 

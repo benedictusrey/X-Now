@@ -198,6 +198,7 @@ win2.setTimeout(() => {
   assert(!!menu, 'media menu created on right-click');
   const labels = Array.from(menu.querySelectorAll('button')).map(b => b.textContent);
   assert(labels.some(l => l.includes('Save image to the X-Now folder')), 'menu offers Save image');
+  assert(labels.some(l => l.includes('Open in X-Now Downloader')), 'menu offers Open in X-Now Downloader');
   assert(labels.some(l => l.includes('Open post in default browser')), 'menu offers Open post in browser');
 
   // ── Handle detection for the native titlebar ─────────────────────────────────
@@ -257,6 +258,7 @@ win2.setTimeout(() => {
       }
       if (cmd === 'save_media_bytes') return 'C:\\Users\\x\\Downloads\\X-Now\\fetched.jpg';
       if (cmd === 'prepare_download_folder') return 'C:\\Users\\x\\Downloads\\X-Now';
+      if (cmd === 'open_downloader_window') return undefined;
       throw new Error('unexpected ' + cmd);
     } } };
     win2.fetch = async (url, opts) => {
@@ -595,6 +597,42 @@ setTimeout(() => {
     focusCase.d.window.document.hasFocus = () => true;
     focusCase.d.window.dispatchEvent(new focusCase.d.window.Event('focus'));
     assert(focusCase.v.muted === false, 'window focus unmutes the playing video once');
+
+    // ── Downloader launch hook & Image Viewer (zoom slider + shortcuts) ───────
+    assert(typeof win2.__xnowTools?.openDownloader === 'function', '__xnowTools.openDownloader exposed');
+    const openedDl = await win2.__xnowTools.openDownloader('', imgA);
+    assert(openedDl === true, 'openDownloader resolves true with native bridge');
+    const dlLaunch = invoked.find(c => c.cmd === 'open_downloader_window');
+    assert(!!dlLaunch && dlLaunch.url === 'https://x.com/someone/status/1234567890123',
+      'openDownloader passes the resolved X post URL');
+
+    // Ctrl/Cmd+click opens the image viewer with zoom slider & keyboard shortcuts
+    const imgWebp = postWithImg(win2, 'https://pbs.twimg.com/media/WEBP?format=webp&name=medium');
+    imgWebp.dispatchEvent(new win2.MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true }));
+    const viewer = doc2.querySelector('.xnow-media-viewer');
+    const slider = viewer?.querySelector('.xnow-media-viewer__zoom');
+    const zoomLabel = viewer?.querySelector('.xnow-media-viewer__zoom-label');
+    assert(!!viewer && !!slider && !!zoomLabel, 'Ctrl+click opens image viewer with zoom slider');
+    assert(viewer?.querySelector('.xnow-media-viewer__image')?.src.includes('format=jpg&name=orig'),
+      'image viewer converts WebP preview to orig high-compatibility JPG URL');
+    slider.value = '220';
+    slider.dispatchEvent(new win2.Event('input', { bubbles: true }));
+    assert(zoomLabel?.textContent === '220%', 'zoom slider updates readout & transform');
+    doc2.dispatchEvent(new win2.KeyboardEvent('keydown', { key: '+', bubbles: true, cancelable: true }));
+    assert(zoomLabel?.textContent === '235%', '+ key zooms image viewer in');
+    doc2.dispatchEvent(new win2.KeyboardEvent('keydown', { key: '-', bubbles: true, cancelable: true }));
+    assert(zoomLabel?.textContent === '220%', '- key zooms image viewer out');
+    doc2.dispatchEvent(new win2.KeyboardEvent('keydown', { key: '1', bubbles: true, cancelable: true }));
+    assert(zoomLabel?.textContent === '100%', '1 key jumps to 100% actual size');
+    doc2.dispatchEvent(new win2.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    assert(!doc2.querySelector('.xnow-media-viewer'), 'Escape closes image viewer');
+
+    // Ctrl+Shift+D launches X-Now Downloader from keyboard
+    const dlCountBefore = invoked.filter(c => c.cmd === 'open_downloader_window').length;
+    doc2.dispatchEvent(new win2.KeyboardEvent('keydown', { key: 'd', ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true }));
+    await new Promise(r => setTimeout(r, 10));
+    assert(invoked.filter(c => c.cmd === 'open_downloader_window').length > dlCountBefore,
+      'Ctrl+Shift+D invokes open_downloader_window');
 
     // ── Cleanup sanity: single style element across the whole session ──────────
     assert(doc.querySelectorAll('style').length === 1, 'no style duplication after route polls');

@@ -1,6 +1,6 @@
 [package]
 name = "x-now"
-version = "2.5.0"
+version = "2.6.0"
 description = "X-Now Desktop Client"
 authors = ["Benedictus Reynaldo Hartanto (@benedictusrey) <https://github.com/benedictusrey>"]
 edition = "2021"
@@ -24,6 +24,7 @@ tauri-plugin-single-instance = "2"
 # Settings file (settings.rs). Already in Cargo.lock through tauri.
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+tokio = { version = "1", features = ["sync", "time", "rt"] }
 # Tiny pure-Rust helper: embeds the brand icon into the About overlay as a
 # base64 data URI (works on the remote x.com page on every platform).
 base64 = "0.22"

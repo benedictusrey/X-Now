@@ -115,21 +115,26 @@ async function main() {
   const tools = document.querySelector('.xnow-rail-tools');
   assert(!!tools, 'rail tools mount once X\'s nav exists');
   assert(tools?.parentElement === document.body, 'rail tools are pinned to the body, not inside X\'s markup');
-  // Nav right edge 580 + 8 gap - 16 inset - 76px for the two buttons = 496
-  assert(tools?.style.left === '496px', `rail sits at the panel's right end (left ${tools?.style.left})`);
+  // Nav right edge 580 + 8 gap - 16 inset - 116px for the three buttons = 456
+  assert(tools?.style.left === '456px', `rail sits at the panel's right end (left ${tools?.style.left})`);
   // Logo top 60 + (36 - 36) / 2 = 60
   assert(tools?.style.top === '60px', `rail is centred on the logo (top ${tools?.style.top})`);
   assert(tools?.classList.contains('is-placed') === true, 'rail is revealed once placed');
   assert(window.__xnowRailEdge() === 588, 'rail edge comes from the nav (580 + 8)');
-  assert(!!document.querySelector('[aria-label="X-Now settings"]'), 'brand button is labelled');
-  assert(!!document.querySelector('[aria-label="Refresh feed"]'), 'refresh button is labelled');
+  const brandBtn = document.querySelector('[aria-label="X-Now settings"]');
+  const dlBtn = document.querySelector('[aria-label="X-Now Downloader"]');
+  const refreshBtn = document.querySelector('[aria-label="Refresh feed"]');
+  assert(!!brandBtn, 'brand button is labelled');
+  assert(!!dlBtn, 'downloader button is labelled');
+  assert(!!refreshBtn, 'refresh button is labelled');
+  assert(dlBtn?.nextElementSibling === refreshBtn, 'downloader icon sits directly to the left of Refresh feed');
   assert(document.querySelector('img.xnow-rail-brand')?.src === BRAND, 'brand icon is embedded, not a placeholder');
 
   // The rail follows the nav when the window changes size.
   setRect(document.querySelector('nav[aria-label="Primary"]'), { ...NAV, right: 640 });
   window.dispatchEvent(new window.Event('resize'));
   await tick(60);
-  assert(tools.style.left === '556px', `rail follows the nav on resize (left ${tools.style.left})`);
+  assert(tools.style.left === '516px', `rail follows the nav on resize (left ${tools.style.left})`);
   assert(document.documentElement.style.getPropertyValue('--xnow-sheet-left') === '648px',
     'the sheet edge variable follows the nav on resize');
 
@@ -141,7 +146,7 @@ async function main() {
   setTimeout(() => setRect(moving, { ...NAV, left: 370, right: 620 }), 60);
   setTimeout(() => setRect(moving, { ...NAV, left: 380, right: 630 }), 90);
   await tick(300);
-  assert(tools.style.left === '546px', `rail settles on the nav's final position (left ${tools.style.left})`);
+  assert(tools.style.left === '506px', `rail settles on the nav's final position (left ${tools.style.left})`);
   setRect(moving, { ...NAV, right: 640 });
   window.dispatchEvent(new window.Event('resize'));
   await tick(60);
@@ -404,14 +409,14 @@ async function main() {
   const roomy = makeDom('https://x.com/home', { setup: iconOnly(70).setup });
   const tight = makeDom('https://x.com/home', { setup: iconOnly(58).setup });
   const pair = roomy.document.querySelector('.xnow-rail-tools');
-  assert(pair.classList.contains('is-placed') === true, 'icon-only sidebar keeps the pair, in the gap under the logo');
-  // Gap 70 - 43 = 27px. Size 27 - 4 = 23px. Centred on the nav: 40.5 - 25 = 15.5, rounded to 16.
-  assert(pair.style.left === '16px' && pair.style.top === '45px',
-    `pair is centred in the gap (left ${pair.style.left}, top ${pair.style.top})`);
-  assert(pair.style.getPropertyValue('--rail-size') === '23px',
-    `pair is sized to the gap (${pair.style.getPropertyValue('--rail-size')})`);
+  assert(pair.classList.contains('is-placed') === true, 'icon-only sidebar keeps the rail, in the gap under the logo');
+  // Nav width 65 -> max 20px per button for 3 buttons (64px total). Centred on 40.5: 40.5 - 32 = 8.5 -> 9. Gap top: 43 + 3.5 -> 47.
+  assert(pair.style.left === '9px' && pair.style.top === '47px',
+    `rail is centred in the gap (left ${pair.style.left}, top ${pair.style.top})`);
+  assert(pair.style.getPropertyValue('--rail-size') === '20px',
+    `rail is sized to fit the 3-button width (${pair.style.getPropertyValue('--rail-size')})`);
   assert(tight.document.querySelector('.xnow-rail-tools').classList.contains('is-placed') === false,
-    'a gap too small for the pair hides it instead of covering X');
+    'a gap too small for the rail hides it instead of covering X');
 
   // ── Nothing shows before X's nav exists; the buttons follow X's nav ───────
   const late = makeDom('https://x.com/home', { withNav: false });
@@ -421,12 +426,12 @@ async function main() {
   await tick(60);
   const lateTools = late.document.querySelector('.xnow-rail-tools');
   assert(lateTools?.classList.contains('is-placed') === true, 'buttons appear as soon as the nav appears');
-  assert(lateTools?.style.left === '496px', 'and sit at the panel edge');
+  assert(lateTools?.style.left === '456px', 'and sit at the panel edge');
   // X re-renders its nav: the buttons move to the new one.
   late.document.querySelector('nav[aria-label="Primary"]').remove();
   addNav(late.document, { ...NAV, left: 30, right: 300 });
   await tick(60);
-  assert(lateTools?.style.left === '216px', `buttons follow a re-rendered nav (left ${lateTools?.style.left})`);
+  assert(lateTools?.style.left === '176px', `buttons follow a re-rendered nav (left ${lateTools?.style.left})`);
 
   // ── Safety net: X's nav never appears, so the buttons show after 4 s ──────
   const safety = makeDom('https://x.com/home', { withNav: false });

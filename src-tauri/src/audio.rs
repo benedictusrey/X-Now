@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
 use windows::core::{Interface, PCWSTR};
-use windows::Win32::Foundation::RPC_E_CHANGED_MODE;
+use windows::Win32::Foundation::{CloseHandle, RPC_E_CHANGED_MODE};
 use windows::Win32::Media::Audio::Endpoints::IAudioMeterInformation;
 use windows::Win32::Media::Audio::{
     eMultimedia, eRender, IAudioSessionControl, IAudioSessionControl2, IAudioSessionEnumerator,
@@ -108,31 +108,39 @@ pub fn init(data_dir: &Path) {
 /// PIDs of this process and all its descendants (covers `msedgewebview2.exe`
 /// children, which actually own the audio sessions for the web content).
 fn process_tree() -> HashSet<u32> {
-    let mut tree = HashSet::new();
-    tree.insert(std::process::id());
+    use std::collections::{HashMap, VecDeque};
+
+    let root = std::process::id();
+    let mut tree = HashSet::with_capacity(16);
+    tree.insert(root);
 
     unsafe {
         let Ok(snapshot) = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) else {
             return tree;
         };
-        let mut all: Vec<(u32, u32)> = Vec::new(); // (pid, parent_pid)
+        let mut children: HashMap<u32, Vec<u32>> = HashMap::with_capacity(128);
         let mut entry = PROCESSENTRY32W::default();
         entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
         if Process32FirstW(snapshot, &mut entry).is_ok() {
             loop {
-                all.push((entry.th32ProcessID, entry.th32ParentProcessID));
+                children
+                    .entry(entry.th32ParentProcessID)
+                    .or_default()
+                    .push(entry.th32ProcessID);
                 if Process32NextW(snapshot, &mut entry).is_err() {
                     break;
                 }
             }
         }
-        // BFS from our own PID through the parent links.
-        let mut changed = true;
-        while changed {
-            changed = false;
-            for &(pid, parent) in &all {
-                if tree.contains(&parent) && tree.insert(pid) {
-                    changed = true;
+        let _ = CloseHandle(snapshot);
+        let mut queue = VecDeque::with_capacity(16);
+        queue.push_back(root);
+        while let Some(pid) = queue.pop_front() {
+            if let Some(kids) = children.get(&pid) {
+                for &kid in kids {
+                    if tree.insert(kid) {
+                        queue.push_back(kid);
+                    }
                 }
             }
         }

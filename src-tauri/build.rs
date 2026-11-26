@@ -25,11 +25,18 @@ fn main() {
         tauri_build::AppManifest::new().commands(&[
             "open_external_url",
             "prepare_download_folder",
+            "open_downloads_folder",
             "download_media",
             "save_media_bytes",
             "get_settings",
             "update_settings",
             "open_saved_folder",
+            "open_downloader_window",
+            "take_pending_downloader_context",
+            "inspect_x_post",
+            "submit_downloader_probe",
+            "download_post_selection",
+            "save_post_text",
         ]),
     ))
     .expect("failed to run tauri-build");

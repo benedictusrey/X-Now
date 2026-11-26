@@ -158,6 +158,9 @@ fn build_menu(app: &AppHandle) -> Result<(Menu<Wry>, TrayChecks), Box<dyn Error>
         .build()?;
 
     // ── Tools ▸ ────────────────────────────────────────────────────────────
+    let open_downloader = IconMenuItemBuilder::with_id("open_downloader", "X-Now Downloader…")
+        .icon(menu_icon("cobalt"))
+        .build(app)?;
     let saved = IconMenuItemBuilder::with_id("open_saved", "Open saved media folder")
         .icon(menu_icon("bookmarks"))
         .build(app)?;
@@ -176,6 +179,7 @@ fn build_menu(app: &AppHandle) -> Result<(Menu<Wry>, TrayChecks), Box<dyn Error>
         .build(app)?;
     let sep_tools = PredefinedMenuItem::separator(app)?;
     let tools = SubmenuBuilder::with_id(app, "tools", "Tools")
+        .item(&open_downloader)
         .item(&saved)
         .item(&sep_tools)
         .item(&copy_url)
@@ -470,6 +474,13 @@ pub(crate) fn run_action(app: &AppHandle, action: &str) {
             }
         }
         "open_settings" => show_settings(app),
+        "open_downloader" => {
+            if let Err(error) =
+                crate::open_downloader_window_internal(app, None, None, None, None, None)
+            {
+                eprintln!("[X-Now] Could not open X-Now Downloader: {error}");
+            }
+        }
         "open_saved" => open_saved_folder(app),
         "autostart" => {
             use tauri_plugin_autostart::ManagerExt;
@@ -486,7 +497,7 @@ pub(crate) fn run_action(app: &AppHandle, action: &str) {
             sync_checks(app);
             // A toast can only be seen on the visible window.
             if let Some(window) = active_x(app)
-                .filter(|w| w.is_visible().unwrap_or(false) && !w.is_minimized().unwrap_or(true))
+                .filter(|w| w.is_visible().unwrap_or(false) && !w.is_minimized().unwrap_or(false))
             {
                 let _ = window.eval(&format!(
                     "if (window.showToast) window.showToast('Start when you sign in: {}');",

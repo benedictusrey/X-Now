@@ -18,6 +18,8 @@
     "allow-prepare-download-folder",
     "allow-get-settings",
     "allow-update-settings",
-    "allow-open-saved-folder"
+    "allow-open-saved-folder",
+    "allow-open-downloader-window",
+    "allow-submit-downloader-probe"
   ]
 }

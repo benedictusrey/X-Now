@@ -4,6 +4,36 @@ All notable changes to **X-Now** are documented here. The format follows [Keep a
 
 ---
 
+## [2.6.0] — 2026-11-25
+
+Download guide: [`docs/releases/X-Now_v2.6.0.md`](docs/releases/X-Now_v2.6.0.md)
+
+### 🚀 Added
+- **X-Now Downloader (`Ctrl/Cmd+Shift+D`, top-left rail button left of Refresh feed, context menu, and tray Tools)**: inspect any X/Twitter post URL or ID (`x.com`, `twitter.com`, `fxtwitter.com`, `vxtwitter.com`, `fixupx.com`, or numeric ID) with live page context probe + syndication API fallback, thumbnail strip for multi-media posts, item/format selector, filename stem preview, editable post text (`.txt`), single-file save, audio-only `.m4a` extraction via FFmpeg, HLS `.m3u8` / `.mp4` / `.gif` handling, and Full Post Bundle export (`post.txt` + `metadata.json` + all media).
+- **Built-in Image Zoom Viewer & Preview Zoom Slider**: `Ctrl/Cmd+click` any post image (or choose *View / Zoom image* in its context menu) to inspect it with a `10%–400%` range slider, drag-to-pan, mouse-wheel zoom, and keyboard shortcuts (`+`/`−` zoom, `0`/`F` fit, `1` actual size, arrows pan, `S` save, `Esc` close). The Downloader window also provides a `100%–400%` image preview zoom slider with the same keyboard shortcuts.
+- **High-compatibility media outputs**: defaults `pbs.twimg.com` WebP-encoded images to `JPG` (keeping `PNG` lossless when uploaded as PNG), remuxes HLS streams with `-bsf:a aac_adtstoasc` + `+faststart`, exports palette-dithered compact looped GIFs (`fps=15`, capped width `720px`), adds `avif`/`heic`/`bmp` magic-byte sniffing with collision-safe renames, and guards Windows reserved filenames across platforms.
+- **Cross-platform window & Wayland helpers**: centered work-area window sizing helper, Wayland session detection, tray Wayland toast visibility fix, and explicit visible/minimized state evaluation (`is_window_hidden_state`).
+
+### ⚡ Changed
+- **Performance & memory footprint**:
+  - Consolidated `frontend/x-tools.js` video mount guard and source tracking into a single filtered `MutationObserver` without `Array.from` allocations, skipping text nodes and `.xnow-ui` chrome.
+  - Replaced regex allocations inside `scopedVideoResources`, skipped eager HTML fetches when a direct media URL works, and paused background theme sampling while hidden.
+  - Scoped `frontend/x-rail.js` logo lookup, short-circuited rail mutations when already mounted, and accommodated 3 compact rail controls (`Settings`, `Downloader`, `Refresh`) on narrow sidebars.
+  - Paused `frontend/x-settings.js` `enforceQuiet` polling when hidden or off, and serialized settings writes with a monotonic sequence counter to prevent out-of-order overwrites.
+  - Replaced `O(N·D)` tree scans in `src-tauri/src/audio.rs` with linear `O(N)` BFS, reduced hidden/visible watchdog wakeups (`15s` visible / `5s` hidden), and gated startup DOM diagnostics behind `--webview-diagnostics`.
+  - Synced Black (`#000000`), Dim (`#15202b`), and Light (`#ffffff`) surface tokens across the top-left UI and Downloader window with reduced-motion parity.
+
+### 🔧 Fixed
+- Fixed Wayland `is_visible()` reporting preventing pause-on-hide recovery, added Linux WebKitGTK runtime guards (`WEBKIT_DISABLE_DMABUF_RENDERER`, `WEBKIT_DISABLE_DMABUF_ATLAS`, `WEBKIT_GST_DMABUF_SINK_DISABLED`, `WEBKIT_GST_DISABLE_GL_SINK`, and `WEBKIT_DISABLE_COMPOSITING_MODE` on Wayland), fixed broken WebKitGTK OAuth popups (and denied sign-in popups on all platforms when already signed in), routed in-app popups on Linux to the main window, allowed internal/embedded OAuth frames in `on_navigation`, and enabled `bundleMediaFramework` for AppImage GStreamer plugins.
+- Fixed Windows `CreateToolhelp32Snapshot` handle leak in `src-tauri/src/audio.rs`, cross-filesystem `EXDEV` temp rename failures during FFmpeg image conversion in `src-tauri/src/lib.rs`, `pbs.twimg.com` image URL extension stripping and `.fixvx.com` matching in `src-tauri/src/downloader.rs`, and silent GIF audio-extraction rejection.
+- Fixed WCAG AA dark-surface contrast (`#8b98a5`), range/rail keyboard focus rings, touch/pointer-capture pan cleanup, native macOS/Linux UI fonts, Linux `backdrop-filter` compositor stalls, and cross-origin iframe fiber traversal guards across `frontend/downloader.html`, `frontend/downloader.js`, `frontend/x-tools.js`, and `frontend/x-rail.js`.
+- Fixed `pause_media_for_hidden` race so JS pauses media before WebView2 `TrySuspend()` freezes script execution, with `PAUSE_RECHECK_IN_FLIGHT` deduplication.
+- Fixed watchdog exit lifecycle so closing the main `"x"` window cleans up cleanly and resets `WATCHDOG_STARTED`.
+- Fixed diagnostic title prefixes (`XNOWERR:` / `XNOWLOG:`) leaking into the native window titlebar and deduplicated `set_title` calls.
+- Added parent-directory creation, atomic write cleanup, and direct write fallback in `src-tauri/src/settings.rs` when Windows file indexers/AV lock `.json.tmp` renames.
+
+---
+
 ## [2.5.0] — 2026-11-16
 
 Download guide: [`docs/releases/X-Now_v2.5.0.md`](docs/releases/X-Now_v2.5.0.md) · Full technical record: [`docs/releases/X-Now_v2.5.0-record.md`](docs/releases/X-Now_v2.5.0-record.md)
