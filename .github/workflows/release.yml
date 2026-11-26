@@ -114,8 +114,8 @@ jobs:
           sudo apt-get install -y \
             build-essential curl wget file libssl-dev libxdo-dev \
             libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
-            libgstreamer-plugins-base1.0-dev gstreamer1.0-plugins-base \
-            gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-libav \
+            gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+            gstreamer1.0-plugins-bad gstreamer1.0-libav \
             patchelf rpm libfuse2
 
       - name: Install Tauri CLI
