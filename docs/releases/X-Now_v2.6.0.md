@@ -38,6 +38,12 @@ Choose the file for your system from the [v2.6.0 release assets](https://github.
 - Audio extraction (`.m4a`), `.m3u8` HLS remuxing, and `.mp4`→`.gif` conversion require `ffmpeg` on `PATH`.
 - No Windows ARM64 build.
 
+### Linux performance & AppImage limitations (tracked for future release)
+
+- **Wayland software compositing overhead:** `X-Now` defaults to `WEBKIT_DISABLE_COMPOSITING_MODE=1` and DMA-BUF/GStreamer GL sink guards (`WEBKIT_DISABLE_DMABUF_RENDERER=1`, `WEBKIT_DISABLE_DMABUF_ATLAS=1`, `WEBKIT_GST_DMABUF_SINK_DISABLED=1`, `WEBKIT_GST_DISABLE_GL_SINK=1`) on Wayland to avoid black video frames, bottom clipping, and blank hide/show surfaces. CPU compositing makes Linux scroll and video playback noticeably slower than Windows and macOS; advanced users on unaffected drivers can override with `WEBKIT_DISABLE_COMPOSITING_MODE=0`.
+- **Ubuntu 22.04 AppImage PulseAudio deadlock:** `X-Now_2.6.0_amd64.AppImage` ships Ubuntu 22.04's GStreamer `1.20` `libgstpulseaudio.so` and `libpulse` `15.99`, which were observed deadlocking `WebKitWebProcess` on the main thread (`pa_threaded_mainloop_wait` / `gst_element_change_state`) when scrolling past videos or toggling volume. Future Linux builds on `main` already move CI to `ubuntu-24.04` (GStreamer `1.24` + native `libsoup-3.0`) and strip bundled `libwayland-*` and `libpulse*`; for `v2.6.0`, the native `.deb` or `.rpm` packages (linking the host system's GStreamer/PulseAudio) are recommended over the AppImage where available.
+- **Linux OAuth popups:** Third-party Google and Apple OAuth popups are blocked on Linux WebKitGTK due to upstream blank-window/popup lifecycle bugs in `wry`; use X's in-window email, username, or password sign-in instead.
+
 ## More
 
 - [Changelog](https://github.com/benedictusrey/X-Now/blob/main/CHANGELOG.md)
