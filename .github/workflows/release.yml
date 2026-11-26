@@ -84,7 +84,7 @@ jobs:
   build-linux:
     name: Linux x64 (AppImage, DEB, RPM)
     needs: version
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
       APP_VERSION: ${{ needs.version.outputs.version }}
@@ -116,7 +116,7 @@ jobs:
             libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
             gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
             gstreamer1.0-plugins-bad gstreamer1.0-libav \
-            patchelf rpm libfuse2
+            patchelf rpm
 
       - name: Install Tauri CLI
         shell: bash
@@ -157,6 +157,7 @@ jobs:
             APPIMAGE_EXTRACT_AND_RUN=1 "$OLDPWD/$appimage" --appimage-extract >/dev/null
             chmod -R a+rX squashfs-root
             rm -f squashfs-root/usr/lib/libwayland-* \
+                  squashfs-root/usr/lib/libpulse* \
                   squashfs-root/usr/lib/libsoup-2.4* \
                   squashfs-root/usr/lib/gstreamer-1.0/libgstsoup*
             appimagetool="$(find "$HOME/.cache/tauri" -maxdepth 2 -name 'appimagetool*' -type f -print -quit 2>/dev/null || true)"
